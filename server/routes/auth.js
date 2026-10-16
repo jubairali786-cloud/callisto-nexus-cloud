@@ -88,9 +88,18 @@ router.post("/api/auth/invite", async (req, ctx) => {
       on conflict (org_id, user_id) do update set role=excluded.role, invite_status='active'
     `;
   } else {
-    await sql`
-      insert into org_members (org_id, user_id, role, invite_email, invite_status) values (${ctx.orgId}, null, ${role || "staff"}, ${email.toLowerCase()}, 'pending')
+    // Avoid creating a second pending row if this email was already invited and hasn't
+    // signed up yet — update the existing placeholder's role instead.
+    const existingInvite = await sql`
+      select id from org_members where org_id=${ctx.orgId} and invite_email=${email.toLowerCase()} and invite_status='pending'
     `;
+    if (existingInvite.length) {
+      await sql`update org_members set role=${role || "staff"} where id=${existingInvite[0].id}`;
+    } else {
+      await sql`
+        insert into org_members (org_id, user_id, role, invite_email, invite_status) values (${ctx.orgId}, null, ${role || "staff"}, ${email.toLowerCase()}, 'pending')
+      `;
+    }
   }
   return json({ ok: true, note: "Staff member added. They should sign up using that same email to gain access." });
 });
@@ -103,6 +112,23 @@ router.get("/api/org/members", async (req, ctx) => {
     where m.org_id = ${ctx.orgId} order by m.created_at
   `;
   return json({ members: rows });
+});
+
+// Remove a staff member or cancel a pending invite (owner/admin only). Blocks removing
+// yourself and blocks removing the last remaining owner, so an org can never be left
+// without anyone able to manage it.
+router.del("/api/org/members/:id", async (req, ctx, params) => {
+  if (!ctx || !ctx.orgId) return err("Not authenticated", 401);
+  if (!["owner", "admin"].includes(ctx.role)) return err("Only owners/admins can remove staff", 403);
+  const rows = await sql`select id, role, user_id from org_members where id=${params.id} and org_id=${ctx.orgId}`;
+  if (!rows.length) return err("Member not found", 404);
+  if (rows[0].user_id && rows[0].user_id === ctx.user.id) return err("You can't remove yourself", 400);
+  if (rows[0].role === "owner") {
+    const ownerCount = await sql`select count(*)::int as c from org_members where org_id=${ctx.orgId} and role='owner'`;
+    if (ownerCount[0].c <= 1) return err("Can't remove the last owner of the organization", 400);
+  }
+  await sql`delete from org_members where id=${params.id} and org_id=${ctx.orgId}`;
+  return json({ ok: true });
 });
 
 router.put("/api/org/settings", async (req, ctx) => {
