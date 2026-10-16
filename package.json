@@ -1,0 +1,11 @@
+{
+  "name": "callisto-nexus-cloud-accounting",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun run server/index.js",
+    "dev": "bun --watch run server/index.js",
+    "test": "bun test"
+  }
+}
