@@ -148,6 +148,28 @@ router.del("/api/org/members/:id", async (req, ctx, params) => {
   return json({ ok: true });
 });
 
+// Permanently delete the current organization (owner only). Every business table
+// has org_id with ON DELETE CASCADE, so this one delete cleans up everything that
+// belonged to the org (members, accounts, invoices, clients, etc. — all of it).
+// Because the caller's own session is scoped to this org, and sessions.org_id also
+// cascades, the delete removes the very session row authenticating this request —
+// so we immediately issue a fresh session (switched to another org the user still
+// belongs to, if any) and hand back a new cookie, the same way login does.
+router.del("/api/org", async (req, ctx) => {
+  if (!ctx || !ctx.orgId) return err("Not authenticated", 401);
+  if (ctx.role !== "owner") return err("Only the owner can delete an organization", 403);
+  const orgIdToDelete = ctx.orgId;
+  const userId = ctx.user.id;
+  await sql`delete from orgs where id=${orgIdToDelete}`;
+  const orgs = await listUserOrgs(userId);
+  const nextOrgId = orgs[0]?.id || null;
+  const { token, expiresAt } = await createSession(userId, nextOrgId);
+  return new Response(JSON.stringify({ ok: true, orgId: nextOrgId }), {
+    status: 200,
+    headers: { "content-type": "application/json", "set-cookie": sessionCookieHeader(token, expiresAt) },
+  });
+});
+
 router.put("/api/org/settings", async (req, ctx) => {
   if (!ctx || !ctx.orgId) return err("Not authenticated", 401);
   if (!["owner", "admin"].includes(ctx.role)) return err("Only owners/admins can edit org settings", 403);
