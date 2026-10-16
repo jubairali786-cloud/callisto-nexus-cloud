@@ -24,8 +24,8 @@ const SettingsPages = (() => {
       </div>
       <div class="card">
         <h2>Staff members</h2>
-        <table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th></tr></thead>
-        <tbody>${members.map((m) => `<tr><td>${Util.escapeHtml(m.name || "—")}</td><td>${Util.escapeHtml(m.email || m.invite_email || "—")}</td><td>${m.role}</td><td>${m.invite_status}</td></tr>`).join("")}</tbody></table>
+        <table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th></th></tr></thead>
+        <tbody>${members.map((m) => `<tr><td>${Util.escapeHtml(m.name || "—")}</td><td>${Util.escapeHtml(m.email || m.invite_email || "—")}</td><td>${m.role}</td><td>${m.invite_status}</td><td><button type="button" style="background:none;border:none;color:#c0392b;cursor:pointer;text-decoration:underline;padding:0;font-size:inherit;" data-remove-member="${m.id}">Remove</button></td></tr>`).join("")}</tbody></table>
         <form id="inviteForm" class="field-row" style="margin-top:14px; align-items:flex-end;">
           <div class="field" style="flex:2;"><label>Invite by email</label><input id="f_inviteEmail" type="email" required placeholder="colleague@company.com"></div>
           <div class="field"><label>Role</label><select id="f_inviteRole"><option value="staff">Staff</option><option value="admin">Admin</option></select></div>
@@ -65,6 +65,15 @@ const SettingsPages = (() => {
         Toast.show(res.note || "Invited."); render(root);
       } catch (err) { toastError(err); }
     };
+    body.querySelectorAll("[data-remove-member]").forEach((btn) => {
+      btn.onclick = async () => {
+        if (!confirm("Remove this staff member / cancel this invite?")) return;
+        try {
+          await API.removeMember(btn.getAttribute("data-remove-member"));
+          Toast.show("Removed."); render(root);
+        } catch (err) { toastError(err); }
+      };
+    });
     body.querySelector("#fxForm").onsubmit = async (e) => {
       e.preventDefault();
       try {
