@@ -29,6 +29,7 @@ const API = (() => {
     orgMembers: () => get("/api/org/members"),
     removeMember: (id) => del(`/api/org/members/${id}`),
     saveOrgSettings: (b) => put("/api/org/settings", b),
+    deleteOrg: () => del("/api/org"),
 
     // clients / vendors
     clients: () => get("/api/clients"),
