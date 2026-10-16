@@ -42,6 +42,14 @@ const SettingsPages = (() => {
           <div class="field"><button type="submit" class="btn">Add Rate</button></div>
         </form>
       </div>
+      ${me.role === "owner" ? `
+      <div class="card" style="border:1px solid #e0b4b4;">
+        <h2 style="color:#c0392b;">Danger zone</h2>
+        <p>Permanently delete <strong>${Util.escapeHtml(org.name || "this organization")}</strong> and everything in it —
+          clients, vendors, items, quotes, invoices, bills, payments, the chart of accounts, all of it. This cannot be undone.
+          Only do this for an empty/duplicate organization you created by mistake, never for one with real data you need.</p>
+        <button type="button" id="deleteOrgBtn" class="btn" style="background:#c0392b;color:#fff;">Delete this organization</button>
+      </div>` : ""}
     `;
     body.querySelector("#orgForm").onsubmit = async (e) => {
       e.preventDefault();
@@ -74,6 +82,21 @@ const SettingsPages = (() => {
         } catch (err) { toastError(err); }
       };
     });
+    const deleteOrgBtn = body.querySelector("#deleteOrgBtn");
+    if (deleteOrgBtn) {
+      deleteOrgBtn.onclick = async () => {
+        const typed = prompt(`This permanently deletes "${org.name}" and everything in it. This cannot be undone.\n\nType the organization name exactly to confirm:`);
+        if (typed === null) return;
+        if (typed.trim() !== (org.name || "").trim()) { Toast.show("Name didn't match — nothing was deleted."); return; }
+        try {
+          await API.deleteOrg();
+          Toast.show("Organization deleted.");
+          location.hash = "#/dashboard";
+          document.getElementById("app").innerHTML = "";
+          App.boot();
+        } catch (err) { toastError(err); }
+      };
+    }
     body.querySelector("#fxForm").onsubmit = async (e) => {
       e.preventDefault();
       try {
