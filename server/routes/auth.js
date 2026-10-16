@@ -6,7 +6,9 @@ import { Router } from "../lib/router.js";
 
 export const router = new Router();
 
-// Sign up: creates a user AND a brand-new org (owner), seeds chart of accounts.
+// Sign up: if this email was already invited to an existing org, claim that
+// invite and join it instead of creating a brand-new, separate org. Otherwise,
+// create a brand-new org (owner), seeding its chart of accounts.
 router.post("/api/auth/signup", async (req) => {
   const body = await req.json().catch(() => ({}));
   const { email, password, name, orgName } = body;
@@ -17,12 +19,27 @@ router.post("/api/auth/signup", async (req) => {
   const passwordHash = await hashPassword(password);
   const [user] = await sql`insert into users (email, password_hash, name) values (${email.toLowerCase()}, ${passwordHash}, ${name}) returning id`;
 
-  const [org] = await sql`insert into orgs (name) values (${orgName || "Callisto Nexus Technical Services L.L.C."}) returning id`;
-  await sql`insert into org_members (org_id, user_id, role) values (${org.id}, ${user.id}, 'owner')`;
-  await ensureSystemAccounts(org.id);
+  const pendingInvites = await sql`
+    select id, org_id from org_members where invite_email=${email.toLowerCase()} and invite_status='pending'
+  `;
 
-  const { token, expiresAt } = await createSession(user.id, org.id);
-  return new Response(JSON.stringify({ ok: true, orgId: org.id }), {
+  let primaryOrgId;
+  if (pendingInvites.length) {
+    // Claim every pending invite for this email (normally just one) by attaching
+    // this new user to each invited org, instead of spinning up a new company.
+    for (const invite of pendingInvites) {
+      await sql`update org_members set user_id=${user.id}, invite_status='active' where id=${invite.id}`;
+    }
+    primaryOrgId = pendingInvites[0].org_id;
+  } else {
+    const [org] = await sql`insert into orgs (name) values (${orgName || "Callisto Nexus Technical Services L.L.C."}) returning id`;
+    await sql`insert into org_members (org_id, user_id, role) values (${org.id}, ${user.id}, 'owner')`;
+    await ensureSystemAccounts(org.id);
+    primaryOrgId = org.id;
+  }
+
+  const { token, expiresAt } = await createSession(user.id, primaryOrgId);
+  return new Response(JSON.stringify({ ok: true, orgId: primaryOrgId }), {
     status: 200,
     headers: { "content-type": "application/json", "set-cookie": sessionCookieHeader(token, expiresAt) },
   });
