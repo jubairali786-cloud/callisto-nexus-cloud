@@ -27,6 +27,7 @@ const API = (() => {
     switchOrg: (orgId) => post("/api/auth/switch-org", { orgId }),
     invite: (b) => post("/api/auth/invite", b),
     orgMembers: () => get("/api/org/members"),
+    removeMember: (id) => del(`/api/org/members/${id}`),
     saveOrgSettings: (b) => put("/api/org/settings", b),
 
     // clients / vendors
