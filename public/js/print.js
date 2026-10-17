@@ -57,6 +57,7 @@ const PrintDoc = (() => {
       return `<tr>
         <td>${Util.escapeHtml(l.description)}</td>
         <td class="num">${Number(l.qty)}</td>
+        <td class="num">${Util.escapeHtml(l.unit || "")}</td>
         <td class="num">${Util.money(l.unit_price)}</td>
         <td class="num">${Number(l.discount_pct || 0)}%</td>
         <td class="num">${Number(l.vat_rate || 0)}%</td>
@@ -130,7 +131,7 @@ const PrintDoc = (() => {
         ${isCreditNote && doc.invoice_number ? `<div class="doc-meta">Against invoice: ${Util.escapeHtml(doc.invoice_number)}</div>` : ""}
         ${isCreditNote && doc.reason ? `<div class="doc-meta">Reason: ${Util.escapeHtml(doc.reason)}</div>` : ""}
         <table class="doc-table">
-          <thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">Disc.</th><th class="num">VAT</th><th class="num">Amount</th></tr></thead>
+          <thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Unit</th><th class="num">Unit price</th><th class="num">Disc.</th><th class="num">VAT</th><th class="num">Amount</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
         <div class="doc-totals">
