@@ -58,7 +58,7 @@ function LineItemsEditor(container, opts) {
   if (!state.lines.length) addLine();
 
   function addLine() {
-    state.lines.push({ _key: Util.uid(), itemId: "", description: "", qty: 1, unitPrice: 0, discountPct: 0, vatRate: 5, expenseAccountId: "" });
+    state.lines.push({ _key: Util.uid(), itemId: "", description: "", qty: 1, unit: "", unitPrice: 0, discountPct: 0, vatRate: 5, expenseAccountId: "" });
     render();
   }
   function removeLine(key) {
@@ -71,6 +71,7 @@ function LineItemsEditor(container, opts) {
     if (item) {
       line.itemId = itemId;
       line.description = line.description || item.name;
+      line.unit = line.unit || item.unit || "";
       line.unitPrice = Number(item.sale_price || 0);
       line.vatRate = Number(item.vat_rate ?? 5);
     } else {
@@ -98,6 +99,7 @@ function LineItemsEditor(container, opts) {
         ${state.expenseAccounts ? `<td style="min-width:170px;">${selectHtml("ea_" + l._key, acctOptions, l.expenseAccountId, "— inventory item —")}</td>` : ""}
         <td style="min-width:180px;"><input type="text" data-f="description" placeholder="Description" value="${Util.escapeHtml(l.description)}"></td>
         <td style="width:70px;"><input type="number" step="0.01" data-f="qty" value="${l.qty}"></td>
+        <td style="width:80px;"><input type="text" data-f="unit" placeholder="pcs" value="${Util.escapeHtml(l.unit || "")}"></td>
         <td style="width:100px;"><input type="number" step="0.01" data-f="unitPrice" value="${l.unitPrice}"></td>
         ${state.includeDiscount ? `<td style="width:80px;"><input type="number" step="0.01" data-f="discountPct" value="${l.discountPct}"></td>` : ""}
         <td style="width:70px;"><input type="number" step="0.01" data-f="vatRate" value="${l.vatRate}"></td>
@@ -111,7 +113,7 @@ function LineItemsEditor(container, opts) {
         <thead><tr>
           ${state.includeItemPicker ? "<th>Catalog item</th>" : ""}
           ${state.expenseAccounts ? "<th>Expense account</th>" : ""}
-          <th>Description</th><th class="num">Qty</th><th class="num">Unit price</th>
+          <th>Description</th><th class="num">Qty</th><th>Unit</th><th class="num">Unit price</th>
           ${state.includeDiscount ? '<th class="num">Disc %</th>' : ""}
           <th class="num">VAT %</th><th class="num">Line total</th><th></th>
         </tr></thead>
@@ -157,7 +159,7 @@ function LineItemsEditor(container, opts) {
   render();
   return {
     getLines: () => state.lines.map((l) => ({
-      itemId: l.itemId || null, description: l.description, qty: Number(l.qty) || 0,
+      itemId: l.itemId || null, description: l.description, qty: Number(l.qty) || 0, unit: (l.unit || "").trim() || null,
       unitPrice: Number(l.unitPrice) || 0, discountPct: Number(l.discountPct) || 0, vatRate: Number(l.vatRate) || 0,
       expenseAccountId: l.expenseAccountId || null,
     })),
