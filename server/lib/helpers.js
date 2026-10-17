@@ -16,6 +16,7 @@ export const DEFAULT_PREFIXES = {
   credit_note: "CNT-CN-",
   po: "CNT-PO-",
   bill: "CNT-BILL-",
+  project: "CNT-PRJ-",
 };
 
 export async function nextNumber(orgId, docType) {
