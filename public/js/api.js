@@ -121,5 +121,23 @@ const API = (() => {
     apAging: (asOf) => get(`/api/reports/ap-aging${asOf ? `?asOf=${asOf}` : ""}`),
     exchangeRates: () => get("/api/exchange-rates"),
     addExchangeRate: (b) => post("/api/exchange-rates", b),
+
+    // Investment & Partners
+    partners: () => get("/api/partners"),
+    partner: (id) => get(`/api/partners/${id}`),
+    createPartner: (b) => post("/api/partners", b),
+    updatePartner: (id, b) => put(`/api/partners/${id}`, b),
+    deletePartner: (id) => del(`/api/partners/${id}`),
+    partnerTransactions: () => get("/api/partner-transactions"),
+    recordPartnerTransaction: (partnerId, b) => post(`/api/partners/${partnerId}/transactions`, b),
+    deletePartnerTransaction: (id) => del(`/api/partner-transactions/${id}`),
+    shareTransfers: () => get("/api/share-transfers"),
+    createShareTransfer: (b) => post("/api/share-transfers", b),
+    partnersDashboard: (from, to) => get(`/api/partners/dashboard?from=${from}&to=${to}`),
+    previewProfitAllocation: (b) => post("/api/profit-allocations/preview", b),
+    createProfitAllocation: (b) => post("/api/profit-allocations", b),
+    profitAllocations: () => get("/api/profit-allocations"),
+    approveProfitAllocation: (id) => post(`/api/profit-allocations/${id}/approve`),
+    deleteProfitAllocation: (id) => del(`/api/profit-allocations/${id}`),
   };
 })();
