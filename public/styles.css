@@ -121,8 +121,11 @@ th.col-del, td.col-del{width:36px; text-align:center; padding-left:0; padding-ri
   color:var(--text); border-radius:8px; padding:8px 14px; font-size:13.5px; font-weight:600; cursor:pointer;
 }
 .btn:hover{background:var(--surface-2);}
+.btn:disabled{opacity:0.45; cursor:not-allowed; filter:grayscale(0.3);}
+.btn:disabled:hover{background:var(--surface);}
 .btn-primary{background:var(--accent); border-color:var(--accent); color:var(--accent-ink);}
 .btn-primary:hover{filter:brightness(1.07);}
+.btn-primary:disabled:hover{filter:none; opacity:0.45;}
 .btn-danger{background:transparent; border-color:var(--bad); color:var(--bad);}
 .btn-danger:hover{background:var(--bad-bg);}
 .btn-sm{padding:5px 10px; font-size:12.5px;}
