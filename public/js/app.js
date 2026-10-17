@@ -3,6 +3,7 @@ const App = (() => {
 
   const NAV = [
     { section: "" , items: [{ r: "dashboard", label: "Dashboard", ic: "&#8962;" }] },
+    { section: "Projects", items: [{ r: "projects", label: "Projects", ic: "&#128193;" }] },
     { section: "Sales", items: [
       { r: "quotes", label: "Quotes", ic: "&#128196;" },
       { r: "invoices", label: "Invoices", ic: "&#128179;" },
@@ -74,7 +75,10 @@ const App = (() => {
       <div class="main">
         <div class="topbar">
           <div id="topbarTitle"></div>
-          <div class="org-switch" id="userBadge"></div>
+          <div class="topbar-right">
+            <div id="globalSearchMount"></div>
+            <div class="org-switch" id="userBadge"></div>
+          </div>
         </div>
         <div id="pageRoot"></div>
       </div>
@@ -137,6 +141,12 @@ const App = (() => {
         return BankingPages.renderList(root);
       }
       if (section === "reports") return ReportPages.render(root, a);
+      if (section === "projects") {
+        if (a === "new") return ProjectPages.renderForm(root);
+        if (a && b === "edit") return ProjectPages.renderForm(root, a);
+        if (a) return ProjectPages.renderDetail(root, a);
+        return ProjectPages.renderList(root);
+      }
       if (["partners-dashboard", "partners", "share-transfers"].includes(section)) {
         if (!["owner", "admin"].includes(currentRole)) {
           root.innerHTML = `<div class="content">${emptyState("Investment & Partners is only available to owners and admins.")}</div>`;
@@ -180,6 +190,7 @@ const App = (() => {
 
     app.innerHTML = layoutShell();
     renderOrgSwitcher();
+    GlobalSearch.mount(document.getElementById("globalSearchMount"));
     document.getElementById("userBadge").textContent = `${currentUser.name} · ${currentOrg.name}`;
     document.getElementById("logoutLink").onclick = async (e) => {
       e.preventDefault();
