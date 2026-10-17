@@ -120,7 +120,11 @@ th.col-del, td.col-del{width:36px; text-align:center; padding-left:0; padding-ri
   display:inline-flex; align-items:center; gap:6px; border:1px solid var(--border); background:var(--surface);
   color:var(--text); border-radius:8px; padding:8px 14px; font-size:13.5px; font-weight:600; cursor:pointer;
 }
-.btn:hover{background:var(--surface-2);}
+/* Scoped to :not(.btn-primary) and :not(.btn-danger) — otherwise this plain hover rule's
+   specificity (class + pseudo-class) beats .btn-primary's single-class background, so
+   moving the mouse over a blue button would swap its background to near-white while the
+   text stayed white, making the whole button look blank. */
+.btn:not(.btn-primary):not(.btn-danger):hover{background:var(--surface-2);}
 .btn:disabled{opacity:0.45; cursor:not-allowed; filter:grayscale(0.3);}
 .btn:disabled:hover{background:var(--surface);}
 .btn-primary{background:var(--accent); border-color:var(--accent); color:var(--accent-ink);}
