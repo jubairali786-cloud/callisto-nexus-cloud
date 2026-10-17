@@ -17,6 +17,7 @@ export const DEFAULT_PREFIXES = {
   po: "CNT-PO-",
   bill: "CNT-BILL-",
   project: "CNT-PRJ-",
+  lpo: "CNT-LPO-",
 };
 
 export async function nextNumber(orgId, docType) {
