@@ -126,7 +126,16 @@ const PrintDoc = (() => {
             ${statusBlock}
           </div>
         </div>
-        <div class="doc-meta"><strong>${isCreditNote ? "Credit To" : isQuote ? "Quote For" : "Bill To"}:</strong> ${Util.escapeHtml(clientLabel)}</div>
+        <div class="doc-to">
+          <div class="doc-to-label">${isCreditNote ? "Credit To" : isQuote ? "To" : "Bill To"}</div>
+          <div class="doc-to-name">${Util.escapeHtml(doc.client_company_name || clientLabel)}</div>
+          ${doc.client_company_name && clientLabel && clientLabel !== doc.client_company_name ? `<div>Attn: ${Util.escapeHtml(clientLabel)}</div>` : ""}
+          ${doc.client_address ? `<div>${Util.escapeHtml(doc.client_address).replace(/\n/g, "<br>")}</div>` : ""}
+          ${doc.client_trn ? `<div>TRN: ${Util.escapeHtml(doc.client_trn)}</div>` : ""}
+          ${doc.client_phone ? `<div>Phone: ${Util.escapeHtml(doc.client_phone)}</div>` : ""}
+          ${doc.client_tel ? `<div>Tel: ${Util.escapeHtml(doc.client_tel)}</div>` : ""}
+          ${doc.client_email ? `<div>Email: ${Util.escapeHtml(doc.client_email)}</div>` : ""}
+        </div>
         ${doc.project_number ? `<div class="doc-meta">Project: ${Util.escapeHtml(doc.project_number)}</div>` : ""}
         ${isCreditNote && doc.invoice_number ? `<div class="doc-meta">Against invoice: ${Util.escapeHtml(doc.invoice_number)}</div>` : ""}
         ${isCreditNote && doc.reason ? `<div class="doc-meta">Reason: ${Util.escapeHtml(doc.reason)}</div>` : ""}
