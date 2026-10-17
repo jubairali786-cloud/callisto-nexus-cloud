@@ -1,4 +1,48 @@
 const PrintDoc = (() => {
+  function round2(n) { return Math.round((Number(n) + Number.EPSILON) * 100) / 100; }
+
+  // Turns the document's advance_type/advance_value into a plain-English payment-terms
+  // sentence, in the same style vendors commonly use on their own quotes/invoices
+  // ("50% Advance & 50% After delivery", "100% Advance along with LPO", etc.). Returns
+  // null when no advance was requested, so the Terms & Conditions section can fall back
+  // to whatever the user typed in the Terms field (or the default thank-you line).
+  function advancePaymentTermsLine(doc) {
+    const amt = Number(doc.advance_amount || 0);
+    if (!doc.advance_type || amt <= 0) return null;
+    const total = Number(doc.total);
+    const remaining = Math.max(round2(total - amt), 0);
+    if (doc.advance_type === "percent") {
+      const pct = Number(doc.advance_value);
+      if (pct >= 99.995) return `100% advance payment (${Util.money(amt, doc.currency_code)}) required before work/delivery commences.`;
+      const remainingPct = round2(100 - pct);
+      return `${pct}% advance payment (${Util.money(amt, doc.currency_code)}) required to proceed; remaining ${remainingPct}% (${Util.money(remaining, doc.currency_code)}) due on completion/delivery.`;
+    }
+    return `Advance payment of ${Util.money(amt, doc.currency_code)} required to proceed; remaining balance of ${Util.money(remaining, doc.currency_code)} due on completion/delivery.`;
+  }
+
+  // Builds the printed "Terms & Conditions" block: an auto-generated Payment Terms line
+  // (from the advance request, when one's set) plus whatever the user typed in the Terms
+  // field, each as its own bullet — matching the structured Terms & Conditions sections
+  // common on vendor quotes, rather than one plain paragraph. Falls back to the original
+  // single thank-you line when there's neither an advance nor custom terms text.
+  function buildTermsBlock(doc) {
+    const paymentLine = advancePaymentTermsLine(doc);
+    const customLines = (doc.terms || "").split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+    if (!paymentLine && !customLines.length) {
+      return `<div class="doc-foot">Thank you for your business.</div>`;
+    }
+    const items = [];
+    if (paymentLine) items.push(`<strong>Payment Terms:</strong> ${Util.escapeHtml(paymentLine)}`);
+    customLines.forEach((l) => items.push(Util.escapeHtml(l)));
+    return `<div class="doc-foot">
+      <div style="font-weight:700; font-size:12.5px; margin-bottom:6px; color:#1c1c1e;">Terms &amp; Conditions</div>
+      <ul style="margin:0 0 8px; padding-left:18px;">
+        ${items.map((i) => `<li style="margin-bottom:3px;">${i}</li>`).join("")}
+      </ul>
+      Thank you for your business.
+    </div>`;
+  }
+
   // type: 'quote' | 'invoice' | 'credit_note'
   function buildMarkup({ type, doc, lines, payments, org, clientLabel }) {
     const isQuote = type === "quote", isInvoice = type === "invoice", isCreditNote = type === "credit_note";
@@ -49,6 +93,17 @@ const PrintDoc = (() => {
             </tr>`).join("")}</tbody>
           </table>`;
       }
+    } else if (isQuote) {
+      // Quotes don't track payments — just state the advance requirement, below the Total,
+      // the same place it shows on an invoice.
+      const advanceAmt = Number(doc.advance_amount || 0);
+      if (advanceAmt > 0) {
+        const remaining = Math.max(Number(doc.total) - advanceAmt, 0);
+        paymentSummaryBlock = `<div class="doc-totals" style="margin-top:6px;">
+          <div class="row"><span>Advance payment required${doc.advance_type === "percent" ? ` (${Number(doc.advance_value)}%)` : ""}</span><span>${Util.money(advanceAmt, doc.currency_code)}</span></div>
+          <div class="row"><span>Balance on completion</span><span>${Util.money(remaining, doc.currency_code)}</span></div>
+        </div>`;
+      }
     }
 
     return `
@@ -86,7 +141,7 @@ const PrintDoc = (() => {
         <div class="doc-amount-words">Amount in words: ${Util.escapeHtml(words)} — Total: ${Util.money(doc.total, doc.currency_code)}</div>
         ${paymentHistoryBlock}
         ${doc.notes ? `<div class="doc-meta">${Util.escapeHtml(doc.notes)}</div>` : ""}
-        ${!isCreditNote ? `<div class="doc-foot">${Util.escapeHtml(doc.terms || "Thank you for your business.")}</div>` : ""}
+        ${!isCreditNote ? buildTermsBlock(doc) : ""}
       </div>
     `;
   }
