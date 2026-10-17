@@ -65,7 +65,13 @@ Bun.serve({
       file = Bun.file(new URL("./index.html", PUBLIC_DIR)); // SPA fallback (hash routing)
     }
     const ext = filePath.slice(filePath.lastIndexOf("."));
-    return new Response(file, { headers: { "content-type": MIME[ext] || "text/html; charset=utf-8" } });
+    // No cache headers were being sent at all, which leaves browsers free to cache these
+    // files on their own heuristics. Since this app has no build step and ships plain,
+    // unversioned filenames (index.html, app.js, styles.css, ...), a stale cached copy of
+    // even ONE file after a deploy can mismatch the rest of the app (e.g. an old app.js
+    // calling a function with an old signature from a newly-updated page script) and the
+    // page silently breaks or renders blank. Force every request to always fetch fresh.
+    return new Response(file, { headers: { "content-type": MIME[ext] || "text/html; charset=utf-8", "cache-control": "no-store" } });
   },
 });
 
