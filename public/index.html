@@ -1,70 +1,30 @@
-import { migrate } from "./db.js";
-import { getAuthContext } from "./lib/auth.js";
-import { Router } from "./lib/router.js";
-import { err } from "./lib/helpers.js";
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Callisto Nexus Cloud Accounting</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div id="app"><div style="padding:40px;color:#888;">Loading…</div></div>
+<div class="toast-wrap" id="toastWrap"></div>
 
-import { router as authRouter } from "./routes/auth.js";
-import { router as contactsRouter } from "./routes/contacts.js";
-import { router as itemsRouter } from "./routes/items.js";
-import { router as quotesRouter } from "./routes/quotes.js";
-import { router as invoicesRouter } from "./routes/invoices.js";
-import { router as creditNotesRouter } from "./routes/creditnotes.js";
-import { router as purchasesRouter } from "./routes/purchases.js";
-import { router as bankingRouter } from "./routes/banking.js";
-import { router as reportsRouter } from "./routes/reports.js";
-import { router as partnersRouter } from "./routes/partners.js";
-
-await migrate();
-
-const routers = [authRouter, contactsRouter, itemsRouter, quotesRouter, invoicesRouter, creditNotesRouter, purchasesRouter, bankingRouter, reportsRouter, partnersRouter];
-
-const PUBLIC_DIR = new URL("../public/", import.meta.url);
-const PORT = Number(process.env.PORT || 3000);
-
-const MIME = {
-  ".html": "text/html; charset=utf-8",
-  ".js": "application/javascript; charset=utf-8",
-  ".css": "text/css; charset=utf-8",
-  ".svg": "image/svg+xml",
-  ".png": "image/png",
-  ".json": "application/json",
-};
-
-Bun.serve({
-  port: PORT,
-  idleTimeout: 60,
-  async fetch(req) {
-    const url = new URL(req.url);
-    const { pathname } = url;
-
-    if (pathname.startsWith("/api/")) {
-      try {
-        for (const router of routers) {
-          const match = router.match(req.method, pathname);
-          if (match) {
-            const ctx = await getAuthContext(req);
-            // Public auth endpoints don't require an existing session.
-            const isPublic = pathname === "/api/auth/signup" || pathname === "/api/auth/login";
-            if (!isPublic && !ctx) return err("Not authenticated", 401);
-            return await match.handler(req, ctx, match.params, url);
-          }
-        }
-        return err("Not found", 404);
-      } catch (e) {
-        console.error("[api error]", pathname, e);
-        return err(e.message || "Internal server error", 500);
-      }
-    }
-
-    // Static frontend
-    let filePath = pathname === "/" ? "/index.html" : pathname;
-    let file = Bun.file(new URL("." + filePath, PUBLIC_DIR));
-    if (!(await file.exists())) {
-      file = Bun.file(new URL("./index.html", PUBLIC_DIR)); // SPA fallback (hash routing)
-    }
-    const ext = filePath.slice(filePath.lastIndexOf("."));
-    return new Response(file, { headers: { "content-type": MIME[ext] || "text/html; charset=utf-8" } });
-  },
-});
-
-console.log(`Callisto Nexus Cloud Accounting listening on http://localhost:${PORT}`);
+<script src="/js/logo.js"></script>
+<script src="/js/api.js"></script>
+<script src="/js/util.js"></script>
+<script src="/js/components.js"></script>
+<script src="/js/print.js"></script>
+<script src="/js/pages-auth.js"></script>
+<script src="/js/pages-dashboard.js"></script>
+<script src="/js/pages-contacts.js"></script>
+<script src="/js/pages-items.js"></script>
+<script src="/js/pages-sales.js"></script>
+<script src="/js/pages-purchases.js"></script>
+<script src="/js/pages-banking.js"></script>
+<script src="/js/pages-reports.js"></script>
+<script src="/js/pages-settings.js"></script>
+<script src="/js/pages-partners.js"></script>
+<script src="/js/app.js"></script>
+</body>
+</html>
