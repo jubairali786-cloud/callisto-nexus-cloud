@@ -40,7 +40,13 @@ router.get("/api/quotes", async (req, ctx) => {
 
 router.get("/api/quotes/:id", async (req, ctx, params) => {
   const bad = requireOrg(ctx); if (bad) return bad;
-  const [quote] = await sql`select q.*, c.name as client_name, p.project_number from quotes q join clients c on c.id=q.client_id left join projects p on p.id=q.project_id where q.org_id=${ctx.orgId} and q.id=${params.id}`;
+  const [quote] = await sql`
+    select q.*, c.name as client_name, c.company_name as client_company_name, c.email as client_email,
+      c.phone as client_phone, c.tel as client_tel, c.address as client_address, c.trn as client_trn,
+      p.project_number
+    from quotes q join clients c on c.id=q.client_id left join projects p on p.id=q.project_id
+    where q.org_id=${ctx.orgId} and q.id=${params.id}
+  `;
   if (!quote) return err("Quote not found", 404);
   const lines = await getQuoteLines(params.id);
   return json({ quote: withAdvance(quote), lines });
