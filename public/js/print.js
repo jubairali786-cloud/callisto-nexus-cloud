@@ -1,6 +1,6 @@
 const PrintDoc = (() => {
   // type: 'quote' | 'invoice' | 'credit_note'
-  function buildMarkup({ type, doc, lines, org, clientLabel }) {
+  function buildMarkup({ type, doc, lines, payments, org, clientLabel }) {
     const isQuote = type === "quote", isInvoice = type === "invoice", isCreditNote = type === "credit_note";
     const title = isQuote ? "QUOTATION" : isInvoice ? "TAX INVOICE" : "CREDIT NOTE";
     const number = doc.number;
@@ -23,10 +23,26 @@ const PrintDoc = (() => {
     const words = Util.amountInWords(Number(doc.total), doc.currency_code, "Fils");
 
     let statusBlock = "";
+    let paymentHistoryBlock = "";
     if (isInvoice) {
       const balance = Number(doc.total) - Number(doc.amount_paid || 0);
+      const advanceAmt = Number(doc.advance_amount || 0);
       statusBlock = `<div class="doc-meta">Status: <strong>${Util.escapeHtml((doc.status || "").toUpperCase())}</strong>
-        ${Number(doc.amount_paid) > 0 ? ` · Paid: ${Util.money(doc.amount_paid)} · Balance due: ${Util.money(balance)}` : ""}</div>`;
+        ${advanceAmt > 0 ? ` · Advance requested: ${Util.money(advanceAmt, doc.currency_code)}${doc.advance_type === "percent" ? ` (${Number(doc.advance_value)}%)` : ""}` : ""}
+        ${Number(doc.amount_paid) > 0 ? ` · Paid: ${Util.money(doc.amount_paid, doc.currency_code)} · Balance due: ${Util.money(balance, doc.currency_code)}` : ""}</div>`;
+      if (payments && payments.length) {
+        paymentHistoryBlock = `
+          <div class="doc-meta" style="margin-top:10px;"><strong>Payment history</strong></div>
+          <table class="doc-table">
+            <thead><tr><th>Date</th><th class="num">Amount</th><th>Method</th><th>Reference</th></tr></thead>
+            <tbody>${payments.map((p) => `<tr>
+              <td>${Util.dateStr(p.payment_date)}</td>
+              <td class="num">${Util.money(p.amount, p.currency_code)}</td>
+              <td>${Util.escapeHtml((p.method || "").replace(/_/g, " "))}</td>
+              <td>${Util.escapeHtml(p.reference || "—")}</td>
+            </tr>`).join("")}</tbody>
+          </table>`;
+      }
     }
 
     return `
@@ -61,6 +77,7 @@ const PrintDoc = (() => {
           <div class="row grand"><span>Total</span><span>${Util.money(doc.total, doc.currency_code)}</span></div>
         </div>
         <div class="doc-amount-words">Amount in words: ${Util.escapeHtml(words)} — Total: ${Util.money(doc.total, doc.currency_code)}</div>
+        ${paymentHistoryBlock}
         ${doc.notes ? `<div class="doc-meta">${Util.escapeHtml(doc.notes)}</div>` : ""}
         ${!isCreditNote ? `<div class="doc-foot">${Util.escapeHtml(doc.terms || "Thank you for your business.")}</div>` : ""}
       </div>
