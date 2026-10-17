@@ -65,6 +65,7 @@ const API = (() => {
     quoteStatus: (id, status) => post(`/api/quotes/${id}/status`, { status }),
     deleteQuote: (id) => del(`/api/quotes/${id}`),
     convertQuote: (id) => post(`/api/quotes/${id}/convert`),
+    acceptQuote: (id) => post(`/api/quotes/${id}/accept`),
 
     // invoices
     invoices: () => get("/api/invoices"),
@@ -92,11 +93,13 @@ const API = (() => {
     poStatus: (id, status) => post(`/api/purchase-orders/${id}/status`, { status }),
     deletePurchaseOrder: (id) => del(`/api/purchase-orders/${id}`),
     convertPoToBill: (id) => post(`/api/purchase-orders/${id}/convert-to-bill`),
+    linkPoToProject: (poId, projectId) => post(`/api/purchase-orders/${poId}/link-project`, { projectId }),
     bills: () => get("/api/bills"),
     bill: (id) => get(`/api/bills/${id}`),
     createBill: (b) => post("/api/bills", b),
     openBill: (id) => post(`/api/bills/${id}/open`),
     deleteBill: (id) => del(`/api/bills/${id}`),
+    linkBillToProject: (billId, projectId) => post(`/api/bills/${billId}/link-project`, { projectId }),
     recordBillPayment: (billId, b) => post(`/api/bills/${billId}/payments`, b),
 
     // banking
