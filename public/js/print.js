@@ -23,13 +23,19 @@ const PrintDoc = (() => {
     const words = Util.amountInWords(Number(doc.total), doc.currency_code, "Fils");
 
     let statusBlock = "";
+    let paymentSummaryBlock = "";
     let paymentHistoryBlock = "";
     if (isInvoice) {
       const balance = Number(doc.total) - Number(doc.amount_paid || 0);
       const advanceAmt = Number(doc.advance_amount || 0);
-      statusBlock = `<div class="doc-meta">Status: <strong>${Util.escapeHtml((doc.status || "").toUpperCase())}</strong>
-        ${advanceAmt > 0 ? ` · Advance requested: ${Util.money(advanceAmt, doc.currency_code)}${doc.advance_type === "percent" ? ` (${Number(doc.advance_value)}%)` : ""}` : ""}
-        ${Number(doc.amount_paid) > 0 ? ` · Paid: ${Util.money(doc.amount_paid, doc.currency_code)} · Balance due: ${Util.money(balance, doc.currency_code)}` : ""}</div>`;
+      // Just the status tag stays up near the invoice number/date; the money details
+      // (advance/paid/balance) go below the Total, right where the total itself is.
+      statusBlock = `<div class="doc-meta">Status: <strong>${Util.escapeHtml((doc.status || "").toUpperCase())}</strong></div>`;
+      paymentSummaryBlock = `<div class="doc-totals" style="margin-top:6px;">
+        ${advanceAmt > 0 ? `<div class="row"><span>Advance requested${doc.advance_type === "percent" ? ` (${Number(doc.advance_value)}%)` : ""}</span><span>${Util.money(advanceAmt, doc.currency_code)}</span></div>` : ""}
+        ${Number(doc.amount_paid) > 0 ? `<div class="row"><span>Paid</span><span>${Util.money(doc.amount_paid, doc.currency_code)}</span></div>` : ""}
+        <div class="row"><span>Balance due</span><span><strong>${Util.money(balance, doc.currency_code)}</strong></span></div>
+      </div>`;
       if (payments && payments.length) {
         paymentHistoryBlock = `
           <div class="doc-meta" style="margin-top:10px;"><strong>Payment history</strong></div>
@@ -76,6 +82,7 @@ const PrintDoc = (() => {
           <div class="row"><span>VAT</span><span>${Util.money(doc.vat_total, doc.currency_code)}</span></div>
           <div class="row grand"><span>Total</span><span>${Util.money(doc.total, doc.currency_code)}</span></div>
         </div>
+        ${paymentSummaryBlock}
         <div class="doc-amount-words">Amount in words: ${Util.escapeHtml(words)} — Total: ${Util.money(doc.total, doc.currency_code)}</div>
         ${paymentHistoryBlock}
         ${doc.notes ? `<div class="doc-meta">${Util.escapeHtml(doc.notes)}</div>` : ""}
