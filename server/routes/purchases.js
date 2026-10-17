@@ -7,6 +7,16 @@ import { Router } from "../lib/router.js";
 export const router = new Router();
 function requireOrg(ctx) { if (!ctx || !ctx.orgId) return err("Not authenticated", 401); return null; }
 
+// Unlike the quotes/invoices Project Number field, a PO/Bill's project link never touches
+// the vendor — a project has one client, but can be supplied by many vendors — so this is
+// just "does this projectId exist in this org", nothing to auto-fill or reconcile.
+async function resolveProjectId(ctx, projectId) {
+  if (!projectId) return { projectId: null };
+  const [project] = await sql`select id from projects where org_id=${ctx.orgId} and id=${projectId}`;
+  if (!project) return { error: "Project not found" };
+  return { projectId: project.id };
+}
+
 function computePoTotals(lines) {
   let subtotal = 0, vatTotal = 0;
   for (const l of lines) {
@@ -21,14 +31,15 @@ function computePoTotals(lines) {
 router.get("/api/purchase-orders", async (req, ctx) => {
   const bad = requireOrg(ctx); if (bad) return bad;
   const rows = await sql`
-    select po.*, v.name as vendor_name from purchase_orders po join vendors v on v.id=po.vendor_id
+    select po.*, v.name as vendor_name, p.project_number from purchase_orders po
+    join vendors v on v.id=po.vendor_id left join projects p on p.id=po.project_id
     where po.org_id=${ctx.orgId} order by po.po_date desc, po.created_at desc
   `;
   return json({ purchaseOrders: rows });
 });
 router.get("/api/purchase-orders/:id", async (req, ctx, params) => {
   const bad = requireOrg(ctx); if (bad) return bad;
-  const [po] = await sql`select po.*, v.name as vendor_name from purchase_orders po join vendors v on v.id=po.vendor_id where po.org_id=${ctx.orgId} and po.id=${params.id}`;
+  const [po] = await sql`select po.*, v.name as vendor_name, p.project_number from purchase_orders po join vendors v on v.id=po.vendor_id left join projects p on p.id=po.project_id where po.org_id=${ctx.orgId} and po.id=${params.id}`;
   if (!po) return err("Purchase order not found", 404);
   const lines = await getPoLines(params.id);
   return json({ purchaseOrder: po, lines });
@@ -37,6 +48,8 @@ router.post("/api/purchase-orders", async (req, ctx) => {
   const bad = requireOrg(ctx); if (bad) return bad;
   const b = await req.json().catch(() => ({}));
   if (!b.vendorId || !Array.isArray(b.lines) || !b.lines.length) return err("vendorId and at least one line are required");
+  const projectLink = await resolveProjectId(ctx, b.projectId);
+  if (projectLink.error) return err(projectLink.error);
   const [org] = await sql`select base_currency from orgs where id=${ctx.orgId}`;
   const currency = b.currencyCode || org.base_currency;
   const fxRate = b.fxRate || await resolveFxRate(ctx.orgId, currency, org.base_currency, b.poDate);
@@ -44,14 +57,24 @@ router.post("/api/purchase-orders", async (req, ctx) => {
   const number = await nextNumber(ctx.orgId, "po");
   const po = await sql.begin(async (tx) => {
     const [row] = await tx`
-      insert into purchase_orders (org_id, number, vendor_id, po_date, currency_code, fx_rate, status, notes, subtotal, vat_total, total)
-      values (${ctx.orgId}, ${number}, ${b.vendorId}, ${b.poDate || new Date().toISOString().slice(0, 10)}, ${currency}, ${fxRate}, 'draft', ${b.notes || null}, ${totals.subtotal}, ${totals.vatTotal}, ${totals.total})
+      insert into purchase_orders (org_id, number, vendor_id, project_id, po_date, currency_code, fx_rate, status, notes, subtotal, vat_total, total)
+      values (${ctx.orgId}, ${number}, ${b.vendorId}, ${projectLink.projectId}, ${b.poDate || new Date().toISOString().slice(0, 10)}, ${currency}, ${fxRate}, 'draft', ${b.notes || null}, ${totals.subtotal}, ${totals.vatTotal}, ${totals.total})
       returning *
     `;
     await replacePoLines(tx, row.id, b.lines);
     return row;
   });
   return json({ purchaseOrder: po }, 201);
+});
+router.post("/api/purchase-orders/:id/link-project", async (req, ctx, params) => {
+  const bad = requireOrg(ctx); if (bad) return bad;
+  const b = await req.json().catch(() => ({}));
+  const [po] = await sql`select id from purchase_orders where org_id=${ctx.orgId} and id=${params.id}`;
+  if (!po) return err("Purchase order not found", 404);
+  const projectLink = await resolveProjectId(ctx, b.projectId);
+  if (projectLink.error) return err(projectLink.error);
+  const [updated] = await sql`update purchase_orders set project_id=${projectLink.projectId} where id=${params.id} returning *`;
+  return json({ purchaseOrder: updated });
 });
 router.post("/api/purchase-orders/:id/status", async (req, ctx, params) => {
   const bad = requireOrg(ctx); if (bad) return bad;
@@ -76,8 +99,8 @@ router.post("/api/purchase-orders/:id/convert-to-bill", async (req, ctx, params)
   const number = await nextNumber(ctx.orgId, "bill");
   const bill = await sql.begin(async (tx) => {
     const [row] = await tx`
-      insert into bills (org_id, number, vendor_id, po_id, bill_date, due_date, currency_code, fx_rate, status, subtotal, vat_total, total)
-      values (${ctx.orgId}, ${number}, ${po.vendor_id}, ${po.id}, current_date, current_date + interval '30 days', ${po.currency_code}, ${po.fx_rate}, 'draft', ${po.subtotal}, ${po.vat_total}, ${po.total})
+      insert into bills (org_id, number, vendor_id, po_id, project_id, bill_date, due_date, currency_code, fx_rate, status, subtotal, vat_total, total)
+      values (${ctx.orgId}, ${number}, ${po.vendor_id}, ${po.id}, ${po.project_id}, current_date, current_date + interval '30 days', ${po.currency_code}, ${po.fx_rate}, 'draft', ${po.subtotal}, ${po.vat_total}, ${po.total})
       returning *
     `;
     await replaceBillLines(tx, row.id, lines.map((l) => ({ itemId: l.item_id, description: l.description, qty: l.qty, unitPrice: l.unit_price, vatRate: l.vat_rate })));
@@ -91,14 +114,15 @@ router.post("/api/purchase-orders/:id/convert-to-bill", async (req, ctx, params)
 router.get("/api/bills", async (req, ctx) => {
   const bad = requireOrg(ctx); if (bad) return bad;
   const rows = await sql`
-    select b.*, v.name as vendor_name from bills b join vendors v on v.id=b.vendor_id
+    select b.*, v.name as vendor_name, p.project_number from bills b
+    join vendors v on v.id=b.vendor_id left join projects p on p.id=b.project_id
     where b.org_id=${ctx.orgId} order by b.bill_date desc, b.created_at desc
   `;
   return json({ bills: rows.map((b) => ({ ...b, balance: round2(Number(b.total) - Number(b.amount_paid)) })) });
 });
 router.get("/api/bills/:id", async (req, ctx, params) => {
   const bad = requireOrg(ctx); if (bad) return bad;
-  const [bill] = await sql`select b.*, v.name as vendor_name from bills b join vendors v on v.id=b.vendor_id where b.org_id=${ctx.orgId} and b.id=${params.id}`;
+  const [bill] = await sql`select b.*, v.name as vendor_name, p.project_number from bills b join vendors v on v.id=b.vendor_id left join projects p on p.id=b.project_id where b.org_id=${ctx.orgId} and b.id=${params.id}`;
   if (!bill) return err("Bill not found", 404);
   const lines = await getBillLines(params.id);
   const payments = await sql`select * from bill_payments where bill_id=${params.id} order by payment_date`;
@@ -108,6 +132,8 @@ router.post("/api/bills", async (req, ctx) => {
   const bad = requireOrg(ctx); if (bad) return bad;
   const b = await req.json().catch(() => ({}));
   if (!b.vendorId || !Array.isArray(b.lines) || !b.lines.length) return err("vendorId and at least one line are required");
+  const projectLink = await resolveProjectId(ctx, b.projectId);
+  if (projectLink.error) return err(projectLink.error);
   const [org] = await sql`select base_currency from orgs where id=${ctx.orgId}`;
   const currency = b.currencyCode || org.base_currency;
   const fxRate = b.fxRate || await resolveFxRate(ctx.orgId, currency, org.base_currency, b.billDate);
@@ -115,8 +141,8 @@ router.post("/api/bills", async (req, ctx) => {
   const number = await nextNumber(ctx.orgId, "bill");
   const bill = await sql.begin(async (tx) => {
     const [row] = await tx`
-      insert into bills (org_id, number, vendor_ref, vendor_id, bill_date, due_date, currency_code, fx_rate, status, notes, subtotal, vat_total, total)
-      values (${ctx.orgId}, ${number}, ${b.vendorRef || null}, ${b.vendorId}, ${b.billDate || new Date().toISOString().slice(0, 10)}, ${b.dueDate || null},
+      insert into bills (org_id, number, vendor_ref, vendor_id, project_id, bill_date, due_date, currency_code, fx_rate, status, notes, subtotal, vat_total, total)
+      values (${ctx.orgId}, ${number}, ${b.vendorRef || null}, ${b.vendorId}, ${projectLink.projectId}, ${b.billDate || new Date().toISOString().slice(0, 10)}, ${b.dueDate || null},
         ${currency}, ${fxRate}, 'draft', ${b.notes || null}, ${totals.subtotal}, ${totals.vatTotal}, ${totals.total})
       returning *
     `;
@@ -124,6 +150,16 @@ router.post("/api/bills", async (req, ctx) => {
     return row;
   });
   return json({ bill }, 201);
+});
+router.post("/api/bills/:id/link-project", async (req, ctx, params) => {
+  const bad = requireOrg(ctx); if (bad) return bad;
+  const b = await req.json().catch(() => ({}));
+  const [bill] = await sql`select id from bills where org_id=${ctx.orgId} and id=${params.id}`;
+  if (!bill) return err("Bill not found", 404);
+  const projectLink = await resolveProjectId(ctx, b.projectId);
+  if (projectLink.error) return err(projectLink.error);
+  const [updated] = await sql`update bills set project_id=${projectLink.projectId} where id=${params.id} returning *`;
+  return json({ bill: updated });
 });
 
 router.post("/api/bills/:id/open", async (req, ctx, params) => {
