@@ -124,6 +124,9 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--brand-blue-light
 .pill-partially_paid{background:var(--warn-bg); color:var(--warn);}
 .pill-declined,.pill-void,.pill-cancelled{background:var(--bad-bg); color:var(--bad);}
 .pill-converted{background:var(--surface-2); color:var(--text-muted);}
+.pill-active,.pill-approved{background:var(--good-bg); color:var(--good);}
+.pill-inactive{background:var(--surface-2); color:var(--text-muted);}
+.pill-unpaid{background:var(--bad-bg); color:var(--bad);}
 
 .toast-wrap{position:fixed; bottom:20px; right:20px; z-index:999; display:flex; flex-direction:column; gap:8px;}
 .toast{background:var(--ink-900); color:#fff; padding:10px 16px; border-radius:8px; font-size:13px; box-shadow:0 6px 18px rgba(0,0,0,.25); animation:fadein .15s ease;}
