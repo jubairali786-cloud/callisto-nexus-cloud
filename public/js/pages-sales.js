@@ -11,29 +11,17 @@ const SalesPages = (() => {
   // ---- Project Number field, shared by the Quote and Invoice forms ----
   // Picking an existing project always fills in (and locks) the client — there's no
   // mismatch to resolve because the client is derived from the project, not chosen
-  // independently. "Create a new project instead" switches to a small inline form; that
-  // project is only created when the document is actually saved, and only once (editing
-  // the same document afterwards reuses its existing projectId, so resending/revising a
-  // quote never creates a duplicate project).
+  // independently. There is deliberately no "create a new project" option here any more:
+  // per the current workflow, a project is created in exactly one place — accepting a
+  // quotation (see the Accept Quotation action below) — so this field can only link a
+  // document to a project that already exists (e.g. a follow-up quote for a project that's
+  // already underway).
   function projectFieldHtml(existing) {
     return `
       <div class="field">
-        <label>Project <span style="font-weight:400;">(optional — links this document to a project and auto-fills the client)</span></label>
+        <label>Project <span style="font-weight:400;">(optional — links this document to an existing project and auto-fills the client)</span></label>
         <input id="f_projectPicker" list="projectOptionsList" placeholder="Search by project number, name, or client…" value="${existing?.project_number ? Util.escapeHtml(existing.project_number) : ""}" autocomplete="off">
         <datalist id="projectOptionsList"></datalist>
-        <div style="margin-top:6px;">
-          <label style="display:inline-flex; align-items:center; gap:6px; font-weight:400; font-size:12.5px;">
-            <input type="checkbox" id="f_newProjectToggle" style="width:auto;"> Create a new project instead
-          </label>
-        </div>
-        <div id="newProjectFields" style="display:none; margin-top:10px; padding:12px; background:var(--surface-2); border-radius:8px;">
-          <div class="field"><label>New project name *</label><input id="f_newProjectName"></div>
-          <div class="grid-3">
-            <div class="field"><label>Contact person</label><input id="f_newProjectContact"></div>
-            <div class="field"><label>Location</label><input id="f_newProjectLocation"></div>
-            <div class="field"><label>Scope of work</label><input id="f_newProjectScope"></div>
-          </div>
-        </div>
         <div id="projectInfoBox" style="display:none; margin-top:8px; font-size:12.5px; color:var(--text-muted);"></div>
       </div>
     `;
@@ -44,8 +32,6 @@ const SalesPages = (() => {
   function wireProjectField(projects, existing, showBillingInfo) {
     const picker = document.getElementById("f_projectPicker");
     const datalist = document.getElementById("projectOptionsList");
-    const toggle = document.getElementById("f_newProjectToggle");
-    const newFields = document.getElementById("newProjectFields");
     const infoBox = document.getElementById("projectInfoBox");
     const clientSelectEl = document.getElementById("f_clientId");
     datalist.innerHTML = projects.map((p) => `<option value="${Util.escapeHtml(p.project_number)} — ${Util.escapeHtml(p.name)} (${Util.escapeHtml(p.client_name)})">`).join("");
@@ -77,29 +63,46 @@ const SalesPages = (() => {
     picker.oninput = () => applySelection(findProjectFromInput(picker.value));
     const initialMatch = existing?.project_id ? projects.find((p) => p.id === existing.project_id) : null;
     if (initialMatch) applySelection(initialMatch);
-    toggle.onchange = () => {
-      newFields.style.display = toggle.checked ? "" : "none";
-      picker.disabled = toggle.checked;
-      if (toggle.checked) { picker.value = ""; applySelection(null); }
-    };
     return {
       getProjectLink: () => {
-        if (toggle.checked) {
-          const name = document.getElementById("f_newProjectName").value.trim();
-          if (!name) return { error: "Please enter a name for the new project, or uncheck 'Create a new project instead'." };
-          return {
-            newProject: {
-              name, contactPerson: document.getElementById("f_newProjectContact").value.trim(),
-              location: document.getElementById("f_newProjectLocation").value.trim(), scopeOfWork: document.getElementById("f_newProjectScope").value.trim(),
-            },
-          };
-        }
         const matched = findProjectFromInput(picker.value);
         if (matched) return { projectId: matched.id };
         if (!picker.value.trim() && existing?.project_id) return { projectId: null };
         return {};
       },
     };
+  }
+
+  // ---- Project-planning fields, QUOTE FORM ONLY ----
+  // These are optional, purely informational until the quote is accepted — at that point
+  // (see Accept Quotation) they're copied onto the brand-new project in one shot. They're
+  // deliberately not on the invoice form: a project is never created from an invoice.
+  function projectPlanningFieldsHtml(existing) {
+    return `
+      <div class="field" style="background:var(--surface-2); border-radius:8px; padding:12px;">
+        <label style="font-weight:600;">Project details <span style="font-weight:400; color:var(--text-muted);">(optional — copied onto the new project automatically when this quote is accepted)</span></label>
+        <div class="field" style="margin-top:8px;"><label>Project title</label><input id="f_projectTitle" placeholder="Defaults to the client's name + this quote number" value="${Util.escapeHtml(existing?.project_title || "")}"></div>
+        <div class="grid-2">
+          <div class="field"><label>Project location</label><input id="f_quoteLocation" value="${Util.escapeHtml(existing?.location || "")}"></div>
+          <div class="field"><label>Scope of work</label><input id="f_quoteScopeOfWork" value="${Util.escapeHtml(existing?.scope_of_work || "")}"></div>
+        </div>
+      </div>
+    `;
+  }
+  function readProjectPlanningFields() {
+    return {
+      projectTitle: document.getElementById("f_projectTitle").value.trim(),
+      location: document.getElementById("f_quoteLocation").value.trim(),
+      scopeOfWork: document.getElementById("f_quoteScopeOfWork").value.trim(),
+    };
+  }
+
+  // "declined" is shown to the user as "Rejected" everywhere — the two other document-kind
+  // status maps in this file (invoices, credit notes) don't need this override, so it's
+  // scoped to quotes only rather than changing the shared pill() helper.
+  function quotePill(status) {
+    const labels = { draft: "Draft", sent: "Sent", accepted: "Accepted", declined: "Rejected", converted: "Converted" };
+    return `<span class="pill pill-${status}">${Util.escapeHtml(labels[status] || status)}</span>`;
   }
 
   // Shared "Advance / partial payment requested" block used on both the Quote and
@@ -175,7 +178,7 @@ const SalesPages = (() => {
         <tbody>${quotes.map((q) => `
           <tr data-nav="#/quotes/${q.id}">
             <td>${Util.escapeHtml(q.number)}</td><td>${Util.escapeHtml(q.client_name)}</td><td>${Util.escapeHtml(q.project_number || "—")}</td><td>${Util.dateStr(q.quote_date)}</td>
-            <td class="num">${Util.money(q.total, q.currency_code)}</td><td>${pill(q.status)}</td>
+            <td class="num">${Util.money(q.total, q.currency_code)}</td><td>${quotePill(q.status)}</td>
             <td class="col-del"><button type="button" class="row-delete" data-del="${q.id}" title="Delete">&times;</button></td>
           </tr>`).join("")}</tbody></table>
       ` : emptyState("No quotes yet.");
@@ -207,11 +210,12 @@ const SalesPages = (() => {
           <div class="field"><label>Expiry date</label><input type="date" id="f_expiryDate" value="${existing?.expiry_date ? existing.expiry_date.slice(0, 10) : ""}"></div>
         </div>
         ${projectFieldHtml(existing)}
+        ${projectPlanningFieldsHtml(existing)}
         <div class="grid-3">${currencyFieldsHtml(me.org?.base_currency, existing?.currency_code, existing?.fx_rate)}</div>
         <div class="field"><label>Lines</label><div id="lineEditor"></div></div>
         ${advanceFieldsHtml(existing)}
         <div class="field"><label>Notes</label><textarea id="f_notes" rows="2">${Util.escapeHtml(existing?.notes || "")}</textarea></div>
-        <div class="field"><label>Terms</label><textarea id="f_terms" rows="2">${Util.escapeHtml(existing?.terms || "")}</textarea></div>
+        <div class="field"><label>Terms <span style="font-weight:400; color:var(--text-muted);">(payment terms — copied onto the project once this quote is accepted)</span></label><textarea id="f_terms" rows="2">${Util.escapeHtml(existing?.terms || "")}</textarea></div>
         <div class="btn-row"><button class="btn btn-primary" id="saveBtn">Save Quote</button></div>
       </div>
     </div>`;
@@ -229,6 +233,7 @@ const SalesPages = (() => {
         ...advance.getAdvance(),
         ...readCurrencyFields(),
         ...projectLink,
+        ...readProjectPlanningFields(),
       };
       try {
         const saved = existing ? await API.updateQuote(existing.id, body) : await API.createQuote(body);
@@ -245,6 +250,11 @@ const SalesPages = (() => {
     root.innerHTML = `<div class="content">
       <a class="back-link" href="#/quotes">&larr; Back to Quotes</a>
       ${pageHeader(quote.number, actionsForQuote(quote))}
+      <div style="margin:-6px 0 14px;">${quotePill(quote.status)}</div>
+      ${quote.project_id ? `<div class="card" style="background:var(--good-bg);">
+        <strong>${quote.status === "accepted" ? "Accepted" : "Linked"} — Project <a href="#/projects/${quote.project_id}">${Util.escapeHtml(quote.project_number || "")}</a></strong>
+        ${quote.accepted_at ? ` <span style="color:var(--text-muted); font-size:12.5px;">on ${Util.dateStr(quote.accepted_at)}</span>` : ""}
+      </div>` : ""}
       ${docSummaryCard(quote, lines, quote.client_name)}
       ${quote.advance_type ? `<div class="card">
         <h2>Advance payment required</h2>
@@ -261,16 +271,34 @@ const SalesPages = (() => {
 
   function actionsForQuote(q) {
     let html = `<button class="btn" id="printBtn">Print / PDF</button>`;
-    if (q.status === "draft") html += ` <a class="btn" href="#/quotes/${q.id}/edit">Edit</a>`;
-    if (["draft", "sent"].includes(q.status)) html += ` <button class="btn btn-primary" id="acceptBtn">Mark Accepted</button>`;
+    if (q.status === "draft") html += ` <a class="btn" href="#/quotes/${q.id}/edit">Edit</a> <button class="btn" id="sendBtn">Mark Sent</button>`;
+    if (["draft", "sent"].includes(q.status)) html += ` <button class="btn" id="rejectBtn">Reject</button> <button class="btn btn-primary" id="acceptBtn">Accept Quotation</button>`;
     if (q.status === "accepted") html += ` <button class="btn btn-primary" id="convertBtn">Convert to Invoice</button>`;
     return html;
   }
   function wireQuoteActions(root, quote, id) {
     const printBtn = root.querySelector("#printBtn");
     if (printBtn) printBtn.onclick = () => printDocument("quote", quote, quote.client_name);
+    const sendBtn = root.querySelector("#sendBtn");
+    if (sendBtn) sendBtn.onclick = async () => { try { await API.quoteStatus(id, "sent"); Toast.show("Quote marked sent."); renderQuoteDetail(root, id); } catch (err) { toastError(err); } };
+    const rejectBtn = root.querySelector("#rejectBtn");
+    if (rejectBtn) rejectBtn.onclick = async () => {
+      if (!confirm("Reject this quotation? It will stay in Quotations as Rejected and no project will be created from it.")) return;
+      try { await API.quoteStatus(id, "declined"); Toast.show("Quotation rejected."); renderQuoteDetail(root, id); } catch (err) { toastError(err); }
+    };
     const acceptBtn = root.querySelector("#acceptBtn");
-    if (acceptBtn) acceptBtn.onclick = async () => { try { await API.quoteStatus(id, "accepted"); Toast.show("Quote marked accepted."); renderQuoteDetail(root, id); } catch (err) { toastError(err); } };
+    // Disabled immediately on click as a first line of defense against a double-click
+    // creating a duplicate request — the server-side accept endpoint is itself idempotent
+    // (a row lock guarantees at most one project per quote even under a genuine retry), so
+    // this is belt-and-suspenders, not the actual safety mechanism.
+    if (acceptBtn) acceptBtn.onclick = async () => {
+      acceptBtn.disabled = true; acceptBtn.textContent = "Accepting…";
+      try {
+        const { project, created } = await API.acceptQuote(id);
+        Toast.show(created ? `Quotation accepted — project ${project.project_number} created.` : `Quotation accepted — linked to project ${project.project_number}.`);
+        location.hash = `#/projects/${project.id}`;
+      } catch (err) { acceptBtn.disabled = false; acceptBtn.textContent = "Accept Quotation"; toastError(err); }
+    };
     const convertBtn = root.querySelector("#convertBtn");
     if (convertBtn) convertBtn.onclick = async () => {
       try { const { invoice } = await API.convertQuote(id); Toast.show("Converted to invoice " + invoice.number); location.hash = `#/invoices/${invoice.id}`; } catch (err) { toastError(err); }
