@@ -6,8 +6,8 @@ export async function replaceQuoteLines(tx, quoteId, lines) {
   let i = 0;
   for (const l of lines) {
     await tx`
-      insert into quote_lines (quote_id, item_id, description, qty, unit_price, discount_pct, vat_rate, sort_order)
-      values (${quoteId}, ${l.itemId || null}, ${l.description}, ${l.qty}, ${l.unitPrice}, ${l.discountPct || 0}, ${l.vatRate ?? 5}, ${i++})
+      insert into quote_lines (quote_id, item_id, description, qty, unit, unit_price, discount_pct, vat_rate, sort_order)
+      values (${quoteId}, ${l.itemId || null}, ${l.description}, ${l.qty}, ${l.unit || null}, ${l.unitPrice}, ${l.discountPct || 0}, ${l.vatRate ?? 5}, ${i++})
     `;
   }
 }
@@ -16,8 +16,8 @@ export async function replaceInvoiceLines(tx, invoiceId, lines) {
   let i = 0;
   for (const l of lines) {
     await tx`
-      insert into invoice_lines (invoice_id, item_id, description, qty, unit_price, discount_pct, vat_rate, sort_order)
-      values (${invoiceId}, ${l.itemId || null}, ${l.description}, ${l.qty}, ${l.unitPrice}, ${l.discountPct || 0}, ${l.vatRate ?? 5}, ${i++})
+      insert into invoice_lines (invoice_id, item_id, description, qty, unit, unit_price, discount_pct, vat_rate, sort_order)
+      values (${invoiceId}, ${l.itemId || null}, ${l.description}, ${l.qty}, ${l.unit || null}, ${l.unitPrice}, ${l.discountPct || 0}, ${l.vatRate ?? 5}, ${i++})
     `;
   }
 }
@@ -26,8 +26,8 @@ export async function replaceCreditNoteLines(tx, cnId, lines) {
   let i = 0;
   for (const l of lines) {
     await tx`
-      insert into credit_note_lines (credit_note_id, item_id, description, qty, unit_price, discount_pct, vat_rate, sort_order)
-      values (${cnId}, ${l.itemId || null}, ${l.description}, ${l.qty}, ${l.unitPrice}, ${l.discountPct || 0}, ${l.vatRate ?? 5}, ${i++})
+      insert into credit_note_lines (credit_note_id, item_id, description, qty, unit, unit_price, discount_pct, vat_rate, sort_order)
+      values (${cnId}, ${l.itemId || null}, ${l.description}, ${l.qty}, ${l.unit || null}, ${l.unitPrice}, ${l.discountPct || 0}, ${l.vatRate ?? 5}, ${i++})
     `;
   }
 }
@@ -36,8 +36,8 @@ export async function replacePoLines(tx, poId, lines) {
   let i = 0;
   for (const l of lines) {
     await tx`
-      insert into po_lines (po_id, item_id, description, qty, unit_price, vat_rate, sort_order)
-      values (${poId}, ${l.itemId || null}, ${l.description}, ${l.qty}, ${l.unitPrice}, ${l.vatRate ?? 5}, ${i++})
+      insert into po_lines (po_id, item_id, description, qty, unit, unit_price, vat_rate, sort_order)
+      values (${poId}, ${l.itemId || null}, ${l.description}, ${l.qty}, ${l.unit || null}, ${l.unitPrice}, ${l.vatRate ?? 5}, ${i++})
     `;
   }
 }
@@ -46,8 +46,8 @@ export async function replaceBillLines(tx, billId, lines) {
   let i = 0;
   for (const l of lines) {
     await tx`
-      insert into bill_lines (bill_id, item_id, expense_account_id, description, qty, unit_price, vat_rate, sort_order)
-      values (${billId}, ${l.itemId || null}, ${l.expenseAccountId || null}, ${l.description}, ${l.qty}, ${l.unitPrice}, ${l.vatRate ?? 5}, ${i++})
+      insert into bill_lines (bill_id, item_id, expense_account_id, description, qty, unit, unit_price, vat_rate, sort_order)
+      values (${billId}, ${l.itemId || null}, ${l.expenseAccountId || null}, ${l.description}, ${l.qty}, ${l.unit || null}, ${l.unitPrice}, ${l.vatRate ?? 5}, ${i++})
     `;
   }
 }
