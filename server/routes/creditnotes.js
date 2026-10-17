@@ -20,7 +20,10 @@ router.get("/api/credit-notes", async (req, ctx) => {
 router.get("/api/credit-notes/:id", async (req, ctx, params) => {
   const bad = requireOrg(ctx); if (bad) return bad;
   const [cn] = await sql`
-    select cn.*, c.name as client_name, i.number as invoice_number from credit_notes cn
+    select cn.*, c.name as client_name, c.company_name as client_company_name, c.email as client_email,
+      c.phone as client_phone, c.tel as client_tel, c.address as client_address, c.trn as client_trn,
+      i.number as invoice_number
+    from credit_notes cn
     join clients c on c.id=cn.client_id left join invoices i on i.id=cn.invoice_id
     where cn.org_id=${ctx.orgId} and cn.id=${params.id}
   `;
