@@ -126,6 +126,7 @@ const PrintDoc = (() => {
           </div>
         </div>
         <div class="doc-meta"><strong>${isCreditNote ? "Credit To" : isQuote ? "Quote For" : "Bill To"}:</strong> ${Util.escapeHtml(clientLabel)}</div>
+        ${doc.project_number ? `<div class="doc-meta">Project: ${Util.escapeHtml(doc.project_number)}</div>` : ""}
         ${isCreditNote && doc.invoice_number ? `<div class="doc-meta">Against invoice: ${Util.escapeHtml(doc.invoice_number)}</div>` : ""}
         ${isCreditNote && doc.reason ? `<div class="doc-meta">Reason: ${Util.escapeHtml(doc.reason)}</div>` : ""}
         <table class="doc-table">
