@@ -164,8 +164,8 @@ const PurchasePages = (() => {
       <div class="card">
         <div class="grid-2"><div><label>Vendor</label><div>${Util.escapeHtml(purchaseOrder.vendor_name)}</div></div><div><label>Date</label><div>${Util.dateStr(purchaseOrder.po_date)}</div></div></div>
         ${linkProjectControlHtml(purchaseOrder)}
-        <table style="margin-top:14px;"><thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">VAT</th></tr></thead>
-        <tbody>${lines.map((l) => `<tr><td>${Util.escapeHtml(l.description)}</td><td class="num">${l.qty}</td><td class="num">${Util.money(l.unit_price)}</td><td class="num">${l.vat_rate}%</td></tr>`).join("")}</tbody></table>
+        <table style="margin-top:14px;"><thead><tr><th>Description</th><th class="num">Qty</th><th>Unit</th><th class="num">Unit price</th><th class="num">VAT</th></tr></thead>
+        <tbody>${lines.map((l) => `<tr><td>${Util.escapeHtml(l.description)}</td><td class="num">${l.qty}</td><td>${Util.escapeHtml(l.unit || "—")}</td><td class="num">${Util.money(l.unit_price)}</td><td class="num">${l.vat_rate}%</td></tr>`).join("")}</tbody></table>
         <div class="totals-box"><div class="row"><span>Subtotal</span><span>${Util.money(purchaseOrder.subtotal)}</span></div><div class="row"><span>VAT</span><span>${Util.money(purchaseOrder.vat_total)}</span></div><div class="row total"><span>Total</span><span>${Util.money(purchaseOrder.total, purchaseOrder.currency_code)}</span></div></div>
       </div>
     </div>`;
@@ -266,8 +266,8 @@ const PurchasePages = (() => {
           <div><label>Balance due</label><div><strong>${Util.money(balance, bill.currency_code)}</strong></div></div>
         </div>
         ${linkProjectControlHtml(bill)}
-        <table style="margin-top:14px;"><thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">VAT</th></tr></thead>
-        <tbody>${lines.map((l) => `<tr><td>${Util.escapeHtml(l.description)}</td><td class="num">${l.qty}</td><td class="num">${Util.money(l.unit_price)}</td><td class="num">${l.vat_rate}%</td></tr>`).join("")}</tbody></table>
+        <table style="margin-top:14px;"><thead><tr><th>Description</th><th class="num">Qty</th><th>Unit</th><th class="num">Unit price</th><th class="num">VAT</th></tr></thead>
+        <tbody>${lines.map((l) => `<tr><td>${Util.escapeHtml(l.description)}</td><td class="num">${l.qty}</td><td>${Util.escapeHtml(l.unit || "—")}</td><td class="num">${Util.money(l.unit_price)}</td><td class="num">${l.vat_rate}%</td></tr>`).join("")}</tbody></table>
         <div class="totals-box"><div class="row"><span>Subtotal</span><span>${Util.money(bill.subtotal)}</span></div><div class="row"><span>VAT</span><span>${Util.money(bill.vat_total)}</span></div><div class="row total"><span>Total</span><span>${Util.money(bill.total, bill.currency_code)}</span></div></div>
       </div>
       ${payments.length ? `<div class="card"><h2>Payments</h2><table><thead><tr><th>Date</th><th class="num">Amount</th><th>Reference</th></tr></thead>
