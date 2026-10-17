@@ -26,8 +26,8 @@ router.post("/api/clients", async (req, ctx) => {
   const b = await req.json().catch(() => ({}));
   if (!b.name) return err("name is required");
   const [row] = await sql`
-    insert into clients (org_id, name, email, phone, address, trn, default_currency, notes)
-    values (${ctx.orgId}, ${b.name}, ${b.email || null}, ${b.phone || null}, ${b.address || null}, ${b.trn || null}, ${b.defaultCurrency || null}, ${b.notes || null})
+    insert into clients (org_id, name, company_name, email, phone, tel, address, trn, default_currency, notes)
+    values (${ctx.orgId}, ${b.name}, ${b.companyName || null}, ${b.email || null}, ${b.phone || null}, ${b.tel || null}, ${b.address || null}, ${b.trn || null}, ${b.defaultCurrency || null}, ${b.notes || null})
     returning *
   `;
   return json({ client: row }, 201);
@@ -36,7 +36,7 @@ router.put("/api/clients/:id", async (req, ctx, params) => {
   const bad = requireOrg(ctx); if (bad) return bad;
   const b = await req.json().catch(() => ({}));
   const [row] = await sql`
-    update clients set name=${b.name}, email=${b.email || null}, phone=${b.phone || null}, address=${b.address || null},
+    update clients set name=${b.name}, company_name=${b.companyName || null}, email=${b.email || null}, phone=${b.phone || null}, tel=${b.tel || null}, address=${b.address || null},
       trn=${b.trn || null}, default_currency=${b.defaultCurrency || null}, notes=${b.notes || null}
     where org_id=${ctx.orgId} and id=${params.id} returning *
   `;
@@ -68,8 +68,8 @@ router.post("/api/vendors", async (req, ctx) => {
   const b = await req.json().catch(() => ({}));
   if (!b.name) return err("name is required");
   const [row] = await sql`
-    insert into vendors (org_id, name, email, phone, address, trn, default_currency, notes)
-    values (${ctx.orgId}, ${b.name}, ${b.email || null}, ${b.phone || null}, ${b.address || null}, ${b.trn || null}, ${b.defaultCurrency || null}, ${b.notes || null})
+    insert into vendors (org_id, name, company_name, email, phone, tel, address, trn, default_currency, notes)
+    values (${ctx.orgId}, ${b.name}, ${b.companyName || null}, ${b.email || null}, ${b.phone || null}, ${b.tel || null}, ${b.address || null}, ${b.trn || null}, ${b.defaultCurrency || null}, ${b.notes || null})
     returning *
   `;
   return json({ vendor: row }, 201);
@@ -78,7 +78,7 @@ router.put("/api/vendors/:id", async (req, ctx, params) => {
   const bad = requireOrg(ctx); if (bad) return bad;
   const b = await req.json().catch(() => ({}));
   const [row] = await sql`
-    update vendors set name=${b.name}, email=${b.email || null}, phone=${b.phone || null}, address=${b.address || null},
+    update vendors set name=${b.name}, company_name=${b.companyName || null}, email=${b.email || null}, phone=${b.phone || null}, tel=${b.tel || null}, address=${b.address || null},
       trn=${b.trn || null}, default_currency=${b.defaultCurrency || null}, notes=${b.notes || null}
     where org_id=${ctx.orgId} and id=${params.id} returning *
   `;
