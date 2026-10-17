@@ -426,7 +426,7 @@ const ProjectPages = (() => {
         <div class="field"><label>File (PDF, JPG, or PNG) *</label><input type="file" id="f_file" accept="application/pdf,image/jpeg,image/png" required></div>
         <div id="lpoFields" style="${forceKind === "lpo" ? "" : "display:none;"}">
           <div class="field-row">
-            <div class="field"><label>LPO number</label><input id="f_lpoNumber"></div>
+            <div class="field"><label>LPO number <span style="font-weight:400; color:var(--text-muted);">(optional — auto-generated if left blank)</span></label><input id="f_lpoNumber" placeholder="Leave blank to auto-generate"></div>
             <div class="field"><label>LPO date</label><input type="date" id="f_lpoDate"></div>
           </div>
           <div class="field-row">
