@@ -268,11 +268,13 @@ const ProjectPages = (() => {
     return `
       <div class="card">
         <h2>Invoices</h2>
-        ${invoices.length ? `<table class="clickable"><thead><tr><th>Number</th><th>Kind</th><th>Date</th><th class="num">Total</th><th class="num">Paid</th><th>Status</th><th></th></tr></thead>
+        ${invoices.length ? `<table class="clickable"><thead><tr><th>Number</th><th>Kind</th><th>Date</th><th class="num">Total</th><th class="num">Paid</th><th class="num">Balance</th><th>Status</th><th></th></tr></thead>
           <tbody>${invoices.map((i) => `
             <tr data-nav="#/invoices/${i.id}">
               <td>${Util.escapeHtml(i.number)}</td><td>${INVOICE_KIND_LABELS[i.invoice_kind] || i.invoice_kind}</td><td>${Util.dateStr(i.invoice_date)}</td>
-              <td class="num">${Util.money(i.total, i.currency_code)}</td><td class="num">${Util.money(i.amount_paid, i.currency_code)}</td><td>${pill(i.status)}</td>
+              <td class="num">${Util.money(i.total, i.currency_code)}</td><td class="num">${Util.money(i.amount_paid, i.currency_code)}</td>
+              <td class="num">${Util.money(i.balance, i.currency_code)}</td>
+              <td>${pill(i.status)}</td>
               <td>${["issued", "partially_paid"].includes(i.status) ? `<button type="button" class="btn btn-sm" data-pay-invoice="${i.id}">Record Payment</button>` : ""}</td>
             </tr>`).join("")}</tbody></table>`
           : emptyState("No invoices linked to this project yet.")}
