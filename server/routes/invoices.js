@@ -8,26 +8,11 @@ export const router = new Router();
 function requireOrg(ctx) { if (!ctx || !ctx.orgId) return err("Not authenticated", 401); return null; }
 
 // Same Project Number resolution as quotes.js: picking an existing project forces
-// clientId to that project's client (auto-filled, never mismatched); `newProject`
-// creates one (only from an explicit "create new project" action — edits go through
-// PUT with the project already set, so resending/revising never creates a duplicate).
+// clientId to that project's client (auto-filled, never mismatched). There's no
+// "create a new project" option here any more — per the current workflow, a project is
+// only ever created by accepting a quotation (server/routes/quotes.js), so this field can
+// only link an invoice to a project that already exists.
 async function resolveProjectLink(ctx, b, fallbackClientId) {
-  if (b.newProject && b.newProject.name) {
-    const clientId = b.clientId || fallbackClientId;
-    if (!clientId) return { error: "clientId is required to create a new project" };
-    const [client] = await sql`select id from clients where org_id=${ctx.orgId} and id=${clientId}`;
-    if (!client) return { error: "Client not found" };
-    const statusOk = ["quotation_sent", "awaiting_lpo", "approved", "in_progress", "completed", "cancelled"];
-    const status = statusOk.includes(b.newProject.status) ? b.newProject.status : "quotation_sent";
-    const [org] = await sql`select base_currency from orgs where id=${ctx.orgId}`;
-    const projectNumber = await nextNumber(ctx.orgId, "project");
-    const [project] = await sql`
-      insert into projects (org_id, project_number, name, client_id, contact_person, location, scope_of_work, status, approved_currency, created_by)
-      values (${ctx.orgId}, ${projectNumber}, ${b.newProject.name}, ${clientId}, ${b.newProject.contactPerson || null}, ${b.newProject.location || null}, ${b.newProject.scopeOfWork || null}, ${status}, ${org.base_currency}, ${ctx.user.id})
-      returning id, client_id
-    `;
-    return { projectId: project.id, clientId: project.client_id };
-  }
   if (b.projectId) {
     const [project] = await sql`select id, client_id from projects where org_id=${ctx.orgId} and id=${b.projectId}`;
     if (!project) return { error: "Project not found" };
