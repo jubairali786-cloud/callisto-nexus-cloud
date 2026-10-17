@@ -127,7 +127,15 @@ router.get("/api/projects/:id", async (req, ctx, params) => {
   const [org] = await sql`select base_currency from orgs where id=${ctx.orgId}`;
 
   const quotes = await sql`select id, number, status, quote_date, total, currency_code, terms, accepted_at, created_at from quotes where org_id=${ctx.orgId} and project_id=${params.id} order by created_at desc`;
-  const invoices = await sql`select id, number, status, invoice_kind, invoice_date, total, amount_paid, currency_code, created_at from invoices where org_id=${ctx.orgId} and project_id=${params.id} order by created_at desc`;
+  const invoicesRaw = await sql`
+    select i.id, i.number, i.status, i.invoice_kind, i.invoice_date, i.total, i.amount_paid, i.currency_code, i.created_at,
+      (select coalesce(sum(cn.total),0) from credit_notes cn where cn.invoice_id=i.id and cn.status='issued') as credited_total
+    from invoices i where i.org_id=${ctx.orgId} and i.project_id=${params.id} order by i.created_at desc
+  `;
+  // Same balance convention as the main Invoices list (server/routes/invoices.js's
+  // withBalance): total minus what's been paid minus any issued credit notes, so a
+  // project's own invoice table reads the same "Balance" figure the rest of the app does.
+  const invoices = invoicesRaw.map((i) => ({ ...i, balance: round2(Number(i.total) - Number(i.amount_paid) - Number(i.credited_total || 0)) }));
   const attachments = await sql`select id, kind, file_name, mime_type, file_size, lpo_number, lpo_date, lpo_value, approval_status, related_quote_id, notes, created_at from project_attachments where org_id=${ctx.orgId} and project_id=${params.id} order by created_at desc`;
   const payments = await sql`
     select p.id, p.amount, p.currency_code, p.payment_date, i.number as invoice_number, i.id as invoice_id
