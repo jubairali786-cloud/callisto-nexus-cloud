@@ -126,7 +126,7 @@ const ProjectPages = (() => {
       <div class="filter-tabs">${TABS.map(([k, label]) => `<button type="button" data-tab="${k}" class="${k === tab ? "active" : ""}">${label}</button>`).join("")}</div>
       ${tab === "overview" ? overviewTabHtml(project, billing, acceptedQuote, activity) : ""}
       ${tab === "quotation" ? quotationTabHtml(quotes, attachments) : ""}
-      ${tab === "invoices" ? invoicesTabHtml(invoices, payments, hasApprovedLpo && project.status !== "cancelled") : ""}
+      ${tab === "invoices" ? invoicesTabHtml(project, billing, invoices, payments, hasApprovedLpo && project.status !== "cancelled") : ""}
       ${tab === "purchases" ? purchasesTabHtml(purchaseOrders, bills) : ""}
       ${tab === "documents" ? documentsTabHtml(attachments) : ""}
     </div>`;
@@ -264,10 +264,15 @@ const ProjectPages = (() => {
   }
 
   // ---- Invoices & Payments tab ----
-  function invoicesTabHtml(invoices, payments, canInvoice) {
+  function invoicesTabHtml(project, billing, invoices, payments, canInvoice) {
     return `
       <div class="card">
         <h2>Invoices</h2>
+        <div class="grid-3" style="margin-bottom:14px;">
+          <div class="stat-box"><div class="label">Approved Value</div><div class="value">${project.approved_value != null ? Util.money(project.approved_value, project.approved_currency) : "—"}</div></div>
+          <div class="stat-box"><div class="label">Already Invoiced</div><div class="value">${Util.money(billing.invoicedTotal, project.approved_currency)}</div></div>
+          <div class="stat-box"><div class="label">Remaining to Invoice</div><div class="value ${billing.remainingToInvoice ? "good" : ""}">${billing.remainingToInvoice != null ? Util.money(billing.remainingToInvoice, project.approved_currency) : "Not calculable"}</div></div>
+        </div>
         ${invoices.length ? `<table class="clickable"><thead><tr><th>Number</th><th>Kind</th><th>Date</th><th class="num">Total</th><th class="num">Paid</th><th class="num">Balance</th><th>Status</th><th></th></tr></thead>
           <tbody>${invoices.map((i) => `
             <tr data-nav="#/invoices/${i.id}">
