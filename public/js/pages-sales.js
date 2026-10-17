@@ -1,4 +1,5 @@
 const SalesPages = (() => {
+  function round2(n) { return Math.round((Number(n) + Number.EPSILON) * 100) / 100; }
   async function loadClientsAndItems() {
     const [{ clients }, { items }] = await Promise.all([API.clients(), API.items()]);
     return { clients, items };
@@ -144,18 +145,65 @@ const SalesPages = (() => {
         </div>
         <div class="grid-3">${currencyFieldsHtml(me.org?.base_currency, existing?.currency_code, existing?.fx_rate)}</div>
         <div class="field"><label>Lines</label><div id="lineEditor"></div></div>
+        <div class="field">
+          <label>Advance / partial payment requested <span style="font-weight:400;">(optional — just a request shown on the invoice; it doesn't affect the balance until a payment is actually recorded)</span></label>
+          <div class="grid-3">
+            <div class="field"><label>Type</label>
+              <select id="f_advanceType">
+                <option value="" ${!existing?.advance_type ? "selected" : ""}>None</option>
+                <option value="percent" ${existing?.advance_type === "percent" ? "selected" : ""}>Percentage of total</option>
+                <option value="fixed" ${existing?.advance_type === "fixed" ? "selected" : ""}>Fixed amount</option>
+              </select>
+            </div>
+            <div class="field"><label id="f_advanceValueLabel">Value</label>
+              <input id="f_advanceValue" type="number" step="0.01" min="0" value="${existing?.advance_value != null ? existing.advance_value : ""}">
+            </div>
+            <div class="field"><label>Preview</label><div id="advancePreview" style="padding-top:8px;">—</div></div>
+          </div>
+        </div>
         <div class="field"><label>Notes</label><textarea id="f_notes" rows="2">${Util.escapeHtml(existing?.notes || "")}</textarea></div>
         <div class="field"><label>Terms</label><textarea id="f_terms" rows="2">${Util.escapeHtml(existing?.terms || "Payment due within 14 days.")}</textarea></div>
         <div class="btn-row"><button class="btn btn-primary" id="saveBtn">Save Invoice</button></div>
       </div>
     </div>`;
     const editor = LineItemsEditor(document.getElementById("lineEditor"), { lines, items, includeDiscount: true });
+
+    const advanceTypeEl = document.getElementById("f_advanceType");
+    const advanceValueEl = document.getElementById("f_advanceValue");
+    const advancePreviewEl = document.getElementById("advancePreview");
+    const advanceValueLabelEl = document.getElementById("f_advanceValueLabel");
+    function updateAdvancePreview() {
+      const type = advanceTypeEl.value;
+      advanceValueLabelEl.textContent = type === "percent" ? "Percentage (%)" : type === "fixed" ? "Fixed amount" : "Value";
+      advanceValueEl.placeholder = type === "percent" ? "e.g. 30" : type === "fixed" ? "e.g. 1575.00" : "";
+      advanceValueEl.disabled = !type;
+      if (!type) { advancePreviewEl.textContent = "—"; return; }
+      const total = editor.getTotals().total;
+      const val = Number(advanceValueEl.value) || 0;
+      let advance = type === "percent" ? (total * val) / 100 : val;
+      advance = Math.min(Math.max(advance, 0), total);
+      const remaining = Math.max(round2(total - advance), 0);
+      advancePreviewEl.innerHTML = `Advance: <strong>${Util.money(advance)}</strong> &nbsp;·&nbsp; Remaining: <strong>${Util.money(remaining)}</strong>`;
+    }
+    advanceTypeEl.onchange = updateAdvancePreview;
+    advanceValueEl.oninput = updateAdvancePreview;
+    // The line-items editor replaces its own inner HTML on every add/remove/edit, but the
+    // #lineEditor container node itself never gets replaced — so a delegated listener on it
+    // keeps catching input/click events from freshly-rendered rows without needing the editor
+    // to expose a change callback of its own.
+    document.getElementById("lineEditor").addEventListener("input", updateAdvancePreview);
+    document.getElementById("lineEditor").addEventListener("click", () => setTimeout(updateAdvancePreview, 0));
+    updateAdvancePreview();
+
     document.getElementById("saveBtn").onclick = async () => {
       const clientId = document.getElementById("f_clientId").value;
       if (!clientId) return toastError(new Error("Please select a client."));
+      const advanceType = advanceTypeEl.value || null;
+      const advanceValue = advanceType ? Number(advanceValueEl.value) || 0 : null;
       const body = {
         clientId, invoiceDate: document.getElementById("f_invoiceDate").value, dueDate: document.getElementById("f_dueDate").value || null,
         notes: document.getElementById("f_notes").value.trim(), terms: document.getElementById("f_terms").value.trim(), lines: editor.getLines(),
+        advanceType, advanceValue,
         ...readCurrencyFields(),
       };
       try {
@@ -170,13 +218,23 @@ const SalesPages = (() => {
     root.innerHTML = `<div class="content">Loading…</div>`;
     const { invoice, lines, payments, creditNotes } = await API.invoice(id);
     const balance = Number(invoice.total) - Number(invoice.amount_paid) - creditNotes.filter((c) => c.status === "issued").reduce((s, c) => s + Number(c.total), 0);
+    const advanceAmt = Number(invoice.advance_amount || 0);
     root.innerHTML = `<div class="content">
       <a class="back-link" href="#/invoices">&larr; Back to Invoices</a>
       ${pageHeader(invoice.number, actionsForInvoice(invoice, balance))}
       ${docSummaryCard(invoice, lines, invoice.client_name, { balance })}
+      ${invoice.advance_type ? `<div class="card">
+        <h2>Advance payment requested</h2>
+        <div class="grid-3">
+          <div><label>Requested</label><div><strong>${Util.money(advanceAmt, invoice.currency_code)}</strong>
+            ${invoice.advance_type === "percent" ? ` (${Number(invoice.advance_value)}% of total)` : " (fixed amount)"}</div></div>
+          <div><label>Payments received</label><div>${Util.money(invoice.amount_paid, invoice.currency_code)}</div></div>
+          <div><label>Outstanding balance</label><div><strong>${Util.money(balance, invoice.currency_code)}</strong></div></div>
+        </div>
+      </div>` : ""}
       ${payments.length ? `<div class="card"><h2>Payments</h2>
-        <table><thead><tr><th>Date</th><th class="num">Amount</th><th>Method</th><th>Reference</th></tr></thead>
-        <tbody>${payments.map((p) => `<tr><td>${Util.dateStr(p.payment_date)}</td><td class="num">${Util.money(p.amount, p.currency_code)}</td><td>${Util.escapeHtml(p.method)}</td><td>${Util.escapeHtml(p.reference || "—")}</td></tr>`).join("")}</tbody></table>
+        <table><thead><tr><th>Date</th><th class="num">Amount</th><th>Method</th><th>Reference</th><th>Notes</th></tr></thead>
+        <tbody>${payments.map((p) => `<tr><td>${Util.dateStr(p.payment_date)}</td><td class="num">${Util.money(p.amount, p.currency_code)}</td><td>${Util.escapeHtml(p.method)}</td><td>${Util.escapeHtml(p.reference || "—")}</td><td>${Util.escapeHtml(p.notes || "—")}</td></tr>`).join("")}</tbody></table>
       </div>` : ""}
       ${creditNotes.length ? `<div class="card"><h2>Credit Notes</h2>
         <table class="clickable"><thead><tr><th>Number</th><th>Date</th><th class="num">Total</th><th>Status</th></tr></thead>
@@ -212,16 +270,25 @@ const SalesPages = (() => {
   }
 
   function openPaymentModal(invoice, balance, onSaved) {
+    const advanceAmt = Number(invoice.advance_amount || 0);
+    const alreadyPaid = Number(invoice.amount_paid || 0);
+    // If an advance was requested and it hasn't been fully paid yet, default the amount
+    // to whatever's left of that advance; otherwise default to the full remaining balance.
+    const suggestedAmount = (advanceAmt > 0 && alreadyPaid < advanceAmt)
+      ? round2(Math.min(advanceAmt - alreadyPaid, balance))
+      : round2(balance);
     Modal.open(`
       <h3>Record payment — ${Util.escapeHtml(invoice.number)}</h3>
       <div class="field"><label>Balance due</label><div>${Util.money(balance, invoice.currency_code)}</div></div>
+      ${advanceAmt > 0 ? `<div class="field"><label>Advance requested</label><div>${Util.money(advanceAmt, invoice.currency_code)}</div></div>` : ""}
       <form id="payForm">
-        <div class="field"><label>Amount *</label><input id="f_amount" type="number" step="0.01" value="${balance}" required></div>
+        <div class="field"><label>Amount *</label><input id="f_amount" type="number" step="0.01" value="${suggestedAmount}" required></div>
         <div class="field"><label>Date</label><input id="f_date" type="date" value="${Util.todayISO()}"></div>
         <div class="field"><label>Method</label>
           <select id="f_method"><option value="bank_transfer">Bank transfer</option><option value="cash">Cash</option><option value="card">Card</option><option value="cheque">Cheque</option></select>
         </div>
         <div class="field"><label>Reference</label><input id="f_reference"></div>
+        <div class="field"><label>Notes</label><textarea id="f_notes" rows="2" placeholder="e.g. 30% advance payment"></textarea></div>
         <div class="btn-row"><button type="submit" class="btn btn-primary">Save</button><button type="button" class="btn" id="cancelBtn">Cancel</button></div>
       </form>
     `, {
@@ -233,6 +300,7 @@ const SalesPages = (() => {
             await API.recordPayment(invoice.id, {
               amount: Number(modal.querySelector("#f_amount").value), paymentDate: modal.querySelector("#f_date").value,
               method: modal.querySelector("#f_method").value, reference: modal.querySelector("#f_reference").value.trim(),
+              notes: modal.querySelector("#f_notes").value.trim(),
             });
             Toast.show("Payment recorded."); Modal.close(); onSaved && onSaved();
           } catch (err) { toastError(err); }
@@ -354,8 +422,11 @@ const SalesPages = (() => {
   async function printDocument(type, doc, clientLabel) {
     try {
       const me = await API.me();
-      const lines = type === "quote" ? (await API.quote(doc.id)).lines : type === "invoice" ? (await API.invoice(doc.id)).lines : (await API.creditNote(doc.id)).lines;
-      const html = PrintDoc.buildMarkup({ type, doc, lines, org: me.org, clientLabel });
+      let lines, payments;
+      if (type === "quote") { lines = (await API.quote(doc.id)).lines; }
+      else if (type === "invoice") { const d = await API.invoice(doc.id); lines = d.lines; payments = d.payments; doc = d.invoice; }
+      else { lines = (await API.creditNote(doc.id)).lines; }
+      const html = PrintDoc.buildMarkup({ type, doc, lines, payments, org: me.org, clientLabel });
       PrintDoc.openPrintWindow(html);
     } catch (err) { toastError(err); }
   }
