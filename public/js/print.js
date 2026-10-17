@@ -73,9 +73,9 @@ const PrintDoc = (() => {
     if (isInvoice) {
       const balance = Number(doc.total) - Number(doc.amount_paid || 0);
       const advanceAmt = Number(doc.advance_amount || 0);
-      // Just the status tag stays up near the invoice number/date; the money details
-      // (advance/paid/balance) go below the Total, right where the total itself is.
-      statusBlock = `<div class="doc-meta">Status: <strong>${Util.escapeHtml((doc.status || "").toUpperCase())}</strong></div>`;
+      // Status isn't shown on the printed document itself — it's an internal tracking
+      // field (issued/paid/etc), not something that belongs on a document handed to the
+      // client. The money details (advance/paid/balance) go below the Total.
       paymentSummaryBlock = `<div class="doc-totals" style="margin-top:6px;">
         ${advanceAmt > 0 ? `<div class="row"><span>Advance requested${doc.advance_type === "percent" ? ` (${Number(doc.advance_value)}%)` : ""}</span><span>${Util.money(advanceAmt, doc.currency_code)}</span></div>` : ""}
         ${Number(doc.amount_paid) > 0 ? `<div class="row"><span>Paid</span><span>${Util.money(doc.amount_paid, doc.currency_code)}</span></div>` : ""}
@@ -136,7 +136,6 @@ const PrintDoc = (() => {
           ${doc.client_tel ? `<div>Tel: ${Util.escapeHtml(doc.client_tel)}</div>` : ""}
           ${doc.client_email ? `<div>Email: ${Util.escapeHtml(doc.client_email)}</div>` : ""}
         </div>
-        ${doc.project_number ? `<div class="doc-meta">Project: ${Util.escapeHtml(doc.project_number)}</div>` : ""}
         ${isCreditNote && doc.invoice_number ? `<div class="doc-meta">Against invoice: ${Util.escapeHtml(doc.invoice_number)}</div>` : ""}
         ${isCreditNote && doc.reason ? `<div class="doc-meta">Reason: ${Util.escapeHtml(doc.reason)}</div>` : ""}
         <table class="doc-table">
