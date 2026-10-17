@@ -1,5 +1,5 @@
 import { sql } from "../db.js";
-import { json, err, nextNumber, resolveFxRate, computeTotals, round2 } from "../lib/helpers.js";
+import { json, err, nextNumber, resolveFxRate, computeTotals, round2, advanceAmount, parseAdvance } from "../lib/helpers.js";
 import { replaceInvoiceLines, getInvoiceLines } from "../lib/doclines.js";
 import { postInvoiceIssue, postInvoicePayment, postInvoiceVoid } from "../lib/sales-posting.js";
 import { Router } from "../lib/router.js";
@@ -20,7 +20,7 @@ router.get("/api/invoices", async (req, ctx) => {
 
 function withBalance(inv) {
   const balance = round2(Number(inv.total) - Number(inv.amount_paid) - Number(inv.credited_total || 0));
-  return { ...inv, balance };
+  return { ...inv, balance, advance_amount: advanceAmount(inv) };
 }
 
 router.get("/api/invoices/:id", async (req, ctx, params) => {
@@ -30,13 +30,15 @@ router.get("/api/invoices/:id", async (req, ctx, params) => {
   const lines = await getInvoiceLines(params.id);
   const payments = await sql`select * from payments where invoice_id=${params.id} order by payment_date`;
   const creditNotes = await sql`select * from credit_notes where invoice_id=${params.id} order by cn_date`;
-  return json({ invoice, lines, payments, creditNotes });
+  return json({ invoice: { ...invoice, advance_amount: advanceAmount(invoice) }, lines, payments, creditNotes });
 });
 
 router.post("/api/invoices", async (req, ctx) => {
   const bad = requireOrg(ctx); if (bad) return bad;
   const b = await req.json().catch(() => ({}));
   if (!b.clientId || !Array.isArray(b.lines) || !b.lines.length) return err("clientId and at least one line are required");
+  const adv = parseAdvance(b);
+  if (adv.error) return err(adv.error);
   const [org] = await sql`select base_currency from orgs where id=${ctx.orgId}`;
   const currency = b.currencyCode || org.base_currency;
   const fxRate = b.fxRate || await resolveFxRate(ctx.orgId, currency, org.base_currency, b.invoiceDate);
@@ -45,15 +47,16 @@ router.post("/api/invoices", async (req, ctx) => {
 
   const invoice = await sql.begin(async (tx) => {
     const [inv] = await tx`
-      insert into invoices (org_id, number, client_id, invoice_date, due_date, currency_code, fx_rate, status, notes, terms, subtotal, vat_total, total)
+      insert into invoices (org_id, number, client_id, invoice_date, due_date, currency_code, fx_rate, status, notes, terms, subtotal, vat_total, total, advance_type, advance_value)
       values (${ctx.orgId}, ${number}, ${b.clientId}, ${b.invoiceDate || new Date().toISOString().slice(0, 10)}, ${b.dueDate || null},
-        ${currency}, ${fxRate}, 'draft', ${b.notes || null}, ${b.terms || null}, ${totals.subtotal}, ${totals.vatTotal}, ${totals.total})
+        ${currency}, ${fxRate}, 'draft', ${b.notes || null}, ${b.terms || null}, ${totals.subtotal}, ${totals.vatTotal}, ${totals.total},
+        ${adv.advanceType}, ${adv.advanceValue})
       returning *
     `;
     await replaceInvoiceLines(tx, inv.id, b.lines);
     return inv;
   });
-  return json({ invoice }, 201);
+  return json({ invoice: { ...invoice, advance_amount: advanceAmount(invoice) } }, 201);
 });
 
 router.put("/api/invoices/:id", async (req, ctx, params) => {
@@ -62,18 +65,21 @@ router.put("/api/invoices/:id", async (req, ctx, params) => {
   const [existing] = await sql`select * from invoices where org_id=${ctx.orgId} and id=${params.id}`;
   if (!existing) return err("Invoice not found", 404);
   if (existing.status !== "draft") return err("Only draft invoices can be edited. Void and recreate if something's wrong.", 409);
+  const adv = parseAdvance(b);
+  if (adv.error) return err(adv.error);
   const totals = computeTotals(b.lines || []);
   const invoice = await sql.begin(async (tx) => {
     const [inv] = await tx`
       update invoices set client_id=${b.clientId}, invoice_date=${b.invoiceDate}, due_date=${b.dueDate || null},
         currency_code=${b.currencyCode || existing.currency_code}, fx_rate=${b.fxRate || existing.fx_rate},
-        notes=${b.notes || null}, terms=${b.terms || null}, subtotal=${totals.subtotal}, vat_total=${totals.vatTotal}, total=${totals.total}
+        notes=${b.notes || null}, terms=${b.terms || null}, subtotal=${totals.subtotal}, vat_total=${totals.vatTotal}, total=${totals.total},
+        advance_type=${adv.advanceType}, advance_value=${adv.advanceValue}
       where id=${params.id} returning *
     `;
     if (Array.isArray(b.lines)) await replaceInvoiceLines(tx, inv.id, b.lines);
     return inv;
   });
-  return json({ invoice });
+  return json({ invoice: { ...invoice, advance_amount: advanceAmount(invoice) } });
 });
 
 // Issues a draft invoice: locks it (no more line edits) and posts the GL entry + inventory movement.
@@ -127,9 +133,9 @@ router.post("/api/invoices/:id/payments", async (req, ctx, params) => {
 
   const result = await sql.begin(async (tx) => {
     const [payment] = await tx`
-      insert into payments (org_id, invoice_id, client_id, payment_date, amount, currency_code, fx_rate, method, bank_account_id, reference)
+      insert into payments (org_id, invoice_id, client_id, payment_date, amount, currency_code, fx_rate, method, bank_account_id, reference, notes)
       values (${ctx.orgId}, ${invoice.id}, ${invoice.client_id}, ${b.paymentDate || new Date().toISOString().slice(0, 10)}, ${round2(b.amount)},
-        ${b.currencyCode || invoice.currency_code}, ${fxRate}, ${b.method || "bank_transfer"}, ${b.bankAccountId || null}, ${b.reference || null})
+        ${b.currencyCode || invoice.currency_code}, ${fxRate}, ${b.method || "bank_transfer"}, ${b.bankAccountId || null}, ${b.reference || null}, ${b.notes || null})
       returning *
     `;
     const newPaid = round2(Number(invoice.amount_paid) + Number(payment.amount));
