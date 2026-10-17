@@ -571,11 +571,11 @@ const SalesPages = (() => {
         ${extra?.balance != null ? `<div><label>Balance due</label><div><strong>${Util.money(extra.balance, doc.currency_code)}</strong></div></div>` : ""}
       </div>
       ${doc.project_number ? `<div style="margin-top:8px;"><label>Project</label><div><a href="#/projects/${doc.project_id}">${Util.escapeHtml(doc.project_number)}</a>${doc.invoice_kind && doc.invoice_kind !== "standard" ? ` <span style="text-transform:capitalize; color:var(--text-muted);">(${doc.invoice_kind} invoice)</span>` : ""}</div></div>` : ""}
-      <table style="margin-top:14px;"><thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">Disc.</th><th class="num">VAT</th><th class="num">Amount</th></tr></thead>
+      <table style="margin-top:14px;"><thead><tr><th>Description</th><th class="num">Qty</th><th>Unit</th><th class="num">Unit price</th><th class="num">Disc.</th><th class="num">VAT</th><th class="num">Amount</th></tr></thead>
       <tbody>${lines.map((l) => {
         const base = Number(l.qty) * Number(l.unit_price) * (1 - Number(l.discount_pct || 0) / 100);
         const amt = base + base * (Number(l.vat_rate || 0) / 100);
-        return `<tr><td>${Util.escapeHtml(l.description)}</td><td class="num">${l.qty}</td><td class="num">${Util.money(l.unit_price)}</td><td class="num">${l.discount_pct || 0}%</td><td class="num">${l.vat_rate}%</td><td class="num">${Util.money(amt)}</td></tr>`;
+        return `<tr><td>${Util.escapeHtml(l.description)}</td><td class="num">${l.qty}</td><td>${Util.escapeHtml(l.unit || "—")}</td><td class="num">${Util.money(l.unit_price)}</td><td class="num">${l.discount_pct || 0}%</td><td class="num">${l.vat_rate}%</td><td class="num">${Util.money(amt)}</td></tr>`;
       }).join("")}</tbody></table>
       <div class="totals-box">
         <div class="row"><span>Subtotal</span><span>${Util.money(doc.subtotal, doc.currency_code)}</span></div>
