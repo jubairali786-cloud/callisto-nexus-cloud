@@ -2,10 +2,14 @@ const ContactPages = (() => {
   function contactFormHtml(c) {
     c = c || {};
     return `
-      <div class="field"><label>Name *</label><input id="f_name" value="${Util.escapeHtml(c.name || "")}" required></div>
+      <div class="field-row">
+        <div class="field"><label>Name *</label><input id="f_name" value="${Util.escapeHtml(c.name || "")}" required></div>
+        <div class="field"><label>Company Name</label><input id="f_companyName" value="${Util.escapeHtml(c.company_name || "")}"></div>
+      </div>
       <div class="field-row">
         <div class="field"><label>Email</label><input id="f_email" type="email" value="${Util.escapeHtml(c.email || "")}"></div>
         <div class="field"><label>Phone</label><input id="f_phone" value="${Util.escapeHtml(c.phone || "")}"></div>
+        <div class="field"><label>Tel Number <span style="font-weight:400; color:var(--text-muted);">(landline)</span></label><input id="f_tel" value="${Util.escapeHtml(c.tel || "")}"></div>
       </div>
       <div class="field"><label>Address</label><textarea id="f_address" rows="2">${Util.escapeHtml(c.address || "")}</textarea></div>
       <div class="field-row">
@@ -18,8 +22,10 @@ const ContactPages = (() => {
   function readContactForm(modal) {
     return {
       name: modal.querySelector("#f_name").value.trim(),
+      companyName: modal.querySelector("#f_companyName").value.trim(),
       email: modal.querySelector("#f_email").value.trim(),
       phone: modal.querySelector("#f_phone").value.trim(),
+      tel: modal.querySelector("#f_tel").value.trim(),
       address: modal.querySelector("#f_address").value.trim(),
       trn: modal.querySelector("#f_trn").value.trim(),
       defaultCurrency: modal.querySelector("#f_defaultCurrency").value.trim(),
@@ -62,10 +68,10 @@ const ContactPages = (() => {
       const data = kind === "client" ? await API.clients() : await API.vendors();
       const rows = kind === "client" ? data.clients : data.vendors;
       document.getElementById("listCard").innerHTML = rows.length ? `
-        <table class="clickable"><thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>TRN</th><th class="col-del"></th></tr></thead>
+        <table class="clickable"><thead><tr><th>Name</th><th>Company Name</th><th>Email</th><th>Phone</th><th>TRN</th><th class="col-del"></th></tr></thead>
         <tbody>${rows.map((r) => `
           <tr data-nav="#/${kind === "client" ? "clients" : "vendors"}/${r.id}">
-            <td>${Util.escapeHtml(r.name)}</td><td>${Util.escapeHtml(r.email || "—")}</td><td>${Util.escapeHtml(r.phone || "—")}</td><td>${Util.escapeHtml(r.trn || "—")}</td>
+            <td>${Util.escapeHtml(r.name)}</td><td>${Util.escapeHtml(r.company_name || "—")}</td><td>${Util.escapeHtml(r.email || "—")}</td><td>${Util.escapeHtml(r.phone || "—")}</td><td>${Util.escapeHtml(r.trn || "—")}</td>
             <td class="col-del"><button type="button" class="row-delete" data-del="${r.id}" title="Delete">&times;</button></td>
           </tr>`).join("")}</tbody></table>
       ` : emptyState(`No ${label.toLowerCase()} yet.`);
@@ -114,8 +120,10 @@ const ContactPages = (() => {
       ${pageHeader(c.name, `<button class="btn" id="editBtn">Edit</button>`)}
       <div class="card">
         <div class="grid-2">
+          <div><label>Company Name</label><div>${Util.escapeHtml(c.company_name || "—")}</div></div>
           <div><label>Email</label><div>${Util.escapeHtml(c.email || "—")}</div></div>
           <div><label>Phone</label><div>${Util.escapeHtml(c.phone || "—")}</div></div>
+          <div><label>Tel Number</label><div>${Util.escapeHtml(c.tel || "—")}</div></div>
           <div><label>TRN</label><div>${Util.escapeHtml(c.trn || "—")}</div></div>
           <div><label>Default currency</label><div>${Util.escapeHtml(c.default_currency || "—")}</div></div>
         </div>
