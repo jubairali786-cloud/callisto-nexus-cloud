@@ -1,11 +1,105 @@
 const SalesPages = (() => {
   function round2(n) { return Math.round((Number(n) + Number.EPSILON) * 100) / 100; }
   async function loadClientsAndItems() {
-    const [{ clients }, { items }] = await Promise.all([API.clients(), API.items()]);
-    return { clients, items };
+    const [{ clients }, { items }, { projects }] = await Promise.all([API.clients(), API.items(), API.projects()]);
+    return { clients, items, projects };
   }
   function clientSelect(clients, selected) {
     return selectHtml("f_clientId", clients.map((c) => ({ value: c.id, label: c.name })), selected, "Select a client…");
+  }
+
+  // ---- Project Number field, shared by the Quote and Invoice forms ----
+  // Picking an existing project always fills in (and locks) the client — there's no
+  // mismatch to resolve because the client is derived from the project, not chosen
+  // independently. "Create a new project instead" switches to a small inline form; that
+  // project is only created when the document is actually saved, and only once (editing
+  // the same document afterwards reuses its existing projectId, so resending/revising a
+  // quote never creates a duplicate project).
+  function projectFieldHtml(existing) {
+    return `
+      <div class="field">
+        <label>Project <span style="font-weight:400;">(optional — links this document to a project and auto-fills the client)</span></label>
+        <input id="f_projectPicker" list="projectOptionsList" placeholder="Search by project number, name, or client…" value="${existing?.project_number ? Util.escapeHtml(existing.project_number) : ""}" autocomplete="off">
+        <datalist id="projectOptionsList"></datalist>
+        <div style="margin-top:6px;">
+          <label style="display:inline-flex; align-items:center; gap:6px; font-weight:400; font-size:12.5px;">
+            <input type="checkbox" id="f_newProjectToggle" style="width:auto;"> Create a new project instead
+          </label>
+        </div>
+        <div id="newProjectFields" style="display:none; margin-top:10px; padding:12px; background:var(--surface-2); border-radius:8px;">
+          <div class="field"><label>New project name *</label><input id="f_newProjectName"></div>
+          <div class="grid-3">
+            <div class="field"><label>Contact person</label><input id="f_newProjectContact"></div>
+            <div class="field"><label>Location</label><input id="f_newProjectLocation"></div>
+            <div class="field"><label>Scope of work</label><input id="f_newProjectScope"></div>
+          </div>
+        </div>
+        <div id="projectInfoBox" style="display:none; margin-top:8px; font-size:12.5px; color:var(--text-muted);"></div>
+      </div>
+    `;
+  }
+  // showBillingInfo: when true (invoice form), shows a live "already invoiced / remaining"
+  // readout once a project is picked, so the next invoice can be sized to avoid double-
+  // billing a previous advance — informational only, never automatic.
+  function wireProjectField(projects, existing, showBillingInfo) {
+    const picker = document.getElementById("f_projectPicker");
+    const datalist = document.getElementById("projectOptionsList");
+    const toggle = document.getElementById("f_newProjectToggle");
+    const newFields = document.getElementById("newProjectFields");
+    const infoBox = document.getElementById("projectInfoBox");
+    const clientSelectEl = document.getElementById("f_clientId");
+    datalist.innerHTML = projects.map((p) => `<option value="${Util.escapeHtml(p.project_number)} — ${Util.escapeHtml(p.name)} (${Util.escapeHtml(p.client_name)})">`).join("");
+
+    function findProjectFromInput(val) {
+      val = (val || "").trim();
+      if (!val) return null;
+      const numPart = val.split(" — ")[0].trim();
+      return projects.find((p) => p.project_number === numPart) || null;
+    }
+    function applySelection(p) {
+      if (p) {
+        clientSelectEl.value = p.client_id;
+        clientSelectEl.disabled = true;
+        if (showBillingInfo) {
+          infoBox.style.display = "";
+          infoBox.textContent = "Loading project billing info…";
+          API.project(p.id).then(({ billing }) => {
+            infoBox.innerHTML = `Approved value: <strong>${billing.approvedValue != null ? Util.money(billing.approvedValue, p.approvedCurrency) : "not set"}</strong>
+              &nbsp;·&nbsp; Already invoiced: <strong>${Util.money(billing.invoicedTotal, p.approvedCurrency)}</strong>
+              &nbsp;·&nbsp; Remaining to invoice: <strong>${billing.remainingToInvoice != null ? Util.money(billing.remainingToInvoice, p.approvedCurrency) : "unknown"}</strong>`;
+          }).catch(() => { infoBox.style.display = "none"; });
+        }
+      } else {
+        clientSelectEl.disabled = false;
+        infoBox.style.display = "none";
+      }
+    }
+    picker.oninput = () => applySelection(findProjectFromInput(picker.value));
+    const initialMatch = existing?.project_id ? projects.find((p) => p.id === existing.project_id) : null;
+    if (initialMatch) applySelection(initialMatch);
+    toggle.onchange = () => {
+      newFields.style.display = toggle.checked ? "" : "none";
+      picker.disabled = toggle.checked;
+      if (toggle.checked) { picker.value = ""; applySelection(null); }
+    };
+    return {
+      getProjectLink: () => {
+        if (toggle.checked) {
+          const name = document.getElementById("f_newProjectName").value.trim();
+          if (!name) return { error: "Please enter a name for the new project, or uncheck 'Create a new project instead'." };
+          return {
+            newProject: {
+              name, contactPerson: document.getElementById("f_newProjectContact").value.trim(),
+              location: document.getElementById("f_newProjectLocation").value.trim(), scopeOfWork: document.getElementById("f_newProjectScope").value.trim(),
+            },
+          };
+        }
+        const matched = findProjectFromInput(picker.value);
+        if (matched) return { projectId: matched.id };
+        if (!picker.value.trim() && existing?.project_id) return { projectId: null };
+        return {};
+      },
+    };
   }
 
   // Shared "Advance / partial payment requested" block used on both the Quote and
@@ -77,10 +171,10 @@ const SalesPages = (() => {
     async function load() {
       const { quotes } = await API.quotes();
       document.getElementById("listCard").innerHTML = quotes.length ? `
-        <table class="clickable"><thead><tr><th>Number</th><th>Client</th><th>Date</th><th class="num">Total</th><th>Status</th><th class="col-del"></th></tr></thead>
+        <table class="clickable"><thead><tr><th>Number</th><th>Client</th><th>Project</th><th>Date</th><th class="num">Total</th><th>Status</th><th class="col-del"></th></tr></thead>
         <tbody>${quotes.map((q) => `
           <tr data-nav="#/quotes/${q.id}">
-            <td>${Util.escapeHtml(q.number)}</td><td>${Util.escapeHtml(q.client_name)}</td><td>${Util.dateStr(q.quote_date)}</td>
+            <td>${Util.escapeHtml(q.number)}</td><td>${Util.escapeHtml(q.client_name)}</td><td>${Util.escapeHtml(q.project_number || "—")}</td><td>${Util.dateStr(q.quote_date)}</td>
             <td class="num">${Util.money(q.total, q.currency_code)}</td><td>${pill(q.status)}</td>
             <td class="col-del"><button type="button" class="row-delete" data-del="${q.id}" title="Delete">&times;</button></td>
           </tr>`).join("")}</tbody></table>
@@ -99,7 +193,7 @@ const SalesPages = (() => {
 
   async function renderQuoteForm(root, id) {
     root.innerHTML = `<div class="content">Loading…</div>`;
-    const { clients, items } = await loadClientsAndItems();
+    const { clients, items, projects } = await loadClientsAndItems();
     const me = await API.me();
     let existing = null, lines = [];
     if (id) { const d = await API.quote(id); existing = d.quote; lines = d.lines.map(toEditorLine); }
@@ -112,6 +206,7 @@ const SalesPages = (() => {
           <div class="field"><label>Quote date</label><input type="date" id="f_quoteDate" value="${(existing?.quote_date || Util.todayISO()).slice(0, 10)}"></div>
           <div class="field"><label>Expiry date</label><input type="date" id="f_expiryDate" value="${existing?.expiry_date ? existing.expiry_date.slice(0, 10) : ""}"></div>
         </div>
+        ${projectFieldHtml(existing)}
         <div class="grid-3">${currencyFieldsHtml(me.org?.base_currency, existing?.currency_code, existing?.fx_rate)}</div>
         <div class="field"><label>Lines</label><div id="lineEditor"></div></div>
         ${advanceFieldsHtml(existing)}
@@ -122,14 +217,18 @@ const SalesPages = (() => {
     </div>`;
     const editor = LineItemsEditor(document.getElementById("lineEditor"), { lines, items, includeDiscount: true });
     const advance = wireAdvanceFields(editor);
+    const project = wireProjectField(projects, existing, false);
     document.getElementById("saveBtn").onclick = async () => {
       const clientId = document.getElementById("f_clientId").value;
       if (!clientId) return toastError(new Error("Please select a client."));
+      const projectLink = project.getProjectLink();
+      if (projectLink.error) return toastError(new Error(projectLink.error));
       const body = {
         clientId, quoteDate: document.getElementById("f_quoteDate").value, expiryDate: document.getElementById("f_expiryDate").value || null,
         notes: document.getElementById("f_notes").value.trim(), terms: document.getElementById("f_terms").value.trim(), lines: editor.getLines(),
         ...advance.getAdvance(),
         ...readCurrencyFields(),
+        ...projectLink,
       };
       try {
         const saved = existing ? await API.updateQuote(existing.id, body) : await API.createQuote(body);
@@ -184,10 +283,10 @@ const SalesPages = (() => {
     async function load() {
       const { invoices } = await API.invoices();
       document.getElementById("listCard").innerHTML = invoices.length ? `
-        <table class="clickable"><thead><tr><th>Number</th><th>Client</th><th>Date</th><th class="num">Total</th><th class="num">Balance</th><th>Status</th><th class="col-del"></th></tr></thead>
+        <table class="clickable"><thead><tr><th>Number</th><th>Client</th><th>Project</th><th>Date</th><th class="num">Total</th><th class="num">Balance</th><th>Status</th><th class="col-del"></th></tr></thead>
         <tbody>${invoices.map((i) => `
           <tr data-nav="#/invoices/${i.id}">
-            <td>${Util.escapeHtml(i.number)}</td><td>${Util.escapeHtml(i.client_name)}</td><td>${Util.dateStr(i.invoice_date)}</td>
+            <td>${Util.escapeHtml(i.number)}</td><td>${Util.escapeHtml(i.client_name)}</td><td>${Util.escapeHtml(i.project_number || "—")}</td><td>${Util.dateStr(i.invoice_date)}</td>
             <td class="num">${Util.money(i.total, i.currency_code)}</td><td class="num">${Util.money(i.balance, i.currency_code)}</td><td>${pill(i.status)}</td>
             <td class="col-del"><button type="button" class="row-delete" data-del="${i.id}" title="Delete">&times;</button></td>
           </tr>`).join("")}</tbody></table>
@@ -206,7 +305,7 @@ const SalesPages = (() => {
 
   async function renderInvoiceForm(root, id, opts) {
     root.innerHTML = `<div class="content">Loading…</div>`;
-    const { clients, items } = await loadClientsAndItems();
+    const { clients, items, projects } = await loadClientsAndItems();
     const me = await API.me();
     let existing = null, lines = [];
     if (id) { const d = await API.invoice(id); existing = d.invoice; lines = d.lines.map(toEditorLine); }
@@ -219,6 +318,7 @@ const SalesPages = (() => {
           <div class="field"><label>Invoice date</label><input type="date" id="f_invoiceDate" value="${(existing?.invoice_date || Util.todayISO()).slice(0, 10)}"></div>
           <div class="field"><label>Due date</label><input type="date" id="f_dueDate" value="${existing?.due_date ? existing.due_date.slice(0, 10) : ""}"></div>
         </div>
+        ${projectFieldHtml(existing)}
         <div class="grid-3">${currencyFieldsHtml(me.org?.base_currency, existing?.currency_code, existing?.fx_rate)}</div>
         <div class="field"><label>Lines</label><div id="lineEditor"></div></div>
         ${advanceFieldsHtml(existing)}
@@ -229,15 +329,19 @@ const SalesPages = (() => {
     </div>`;
     const editor = LineItemsEditor(document.getElementById("lineEditor"), { lines, items, includeDiscount: true });
     const advance = wireAdvanceFields(editor);
+    const project = wireProjectField(projects, existing, true);
 
     document.getElementById("saveBtn").onclick = async () => {
       const clientId = document.getElementById("f_clientId").value;
       if (!clientId) return toastError(new Error("Please select a client."));
+      const projectLink = project.getProjectLink();
+      if (projectLink.error) return toastError(new Error(projectLink.error));
       const body = {
         clientId, invoiceDate: document.getElementById("f_invoiceDate").value, dueDate: document.getElementById("f_dueDate").value || null,
         notes: document.getElementById("f_notes").value.trim(), terms: document.getElementById("f_terms").value.trim(), lines: editor.getLines(),
         ...advance.getAdvance(),
         ...readCurrencyFields(),
+        ...projectLink,
       };
       try {
         const saved = existing ? await API.updateInvoice(existing.id, body) : await API.createInvoice(body);
@@ -438,6 +542,7 @@ const SalesPages = (() => {
         <div><label>Currency</label><div>${doc.currency_code} (fx ${doc.fx_rate})</div></div>
         ${extra?.balance != null ? `<div><label>Balance due</label><div><strong>${Util.money(extra.balance, doc.currency_code)}</strong></div></div>` : ""}
       </div>
+      ${doc.project_number ? `<div style="margin-top:8px;"><label>Project</label><div><a href="#/projects/${doc.project_id}">${Util.escapeHtml(doc.project_number)}</a>${doc.invoice_kind && doc.invoice_kind !== "standard" ? ` <span style="text-transform:capitalize; color:var(--text-muted);">(${doc.invoice_kind} invoice)</span>` : ""}</div></div>` : ""}
       <table style="margin-top:14px;"><thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">Disc.</th><th class="num">VAT</th><th class="num">Amount</th></tr></thead>
       <tbody>${lines.map((l) => {
         const base = Number(l.qty) * Number(l.unit_price) * (1 - Number(l.discount_pct || 0) / 100);
