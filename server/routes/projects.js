@@ -235,10 +235,16 @@ router.post("/api/projects/:id/attachments", async (req, ctx, params) => {
     const [q] = await sql`select id from quotes where org_id=${ctx.orgId} and id=${b.relatedQuoteId} and project_id=${params.id}`;
     if (!q) return err("The related quotation must belong to this project", 409);
   }
+  // LPO number is normally whatever's printed on the customer's own document — but if the
+  // user doesn't want to type it in (or there isn't one, e.g. a verbal/email approval), we
+  // auto-assign a sequential internal reference instead, same numbering pattern as every
+  // other document in the app. A number the user DID type in is always used as-is.
+  let lpoNumber = kind === "lpo" ? (b.lpoNumber || "").trim() : null;
+  if (kind === "lpo" && !lpoNumber) lpoNumber = await nextNumber(ctx.orgId, "lpo");
   const [attachment] = await sql`
     insert into project_attachments (org_id, project_id, kind, file_name, mime_type, file_b64, file_size, lpo_number, lpo_date, lpo_value, approval_status, related_quote_id, notes, uploaded_by)
     values (${ctx.orgId}, ${params.id}, ${kind}, ${b.fileName}, ${b.mimeType}, ${b.fileB64}, ${b.fileSize || 0},
-      ${kind === "lpo" ? (b.lpoNumber || null) : null}, ${kind === "lpo" ? (b.lpoDate || null) : null}, ${kind === "lpo" && b.lpoValue != null && b.lpoValue !== "" ? round2(b.lpoValue) : null},
+      ${lpoNumber}, ${kind === "lpo" ? (b.lpoDate || null) : null}, ${kind === "lpo" && b.lpoValue != null && b.lpoValue !== "" ? round2(b.lpoValue) : null},
       ${kind === "lpo" ? "pending" : "approved"}, ${kind === "lpo" ? (b.relatedQuoteId || null) : null}, ${b.notes || null}, ${ctx.user.id})
     returning id, kind, file_name, mime_type, file_size, lpo_number, lpo_date, lpo_value, approval_status, related_quote_id, notes, created_at
   `;
