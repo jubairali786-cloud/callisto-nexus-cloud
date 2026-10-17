@@ -40,7 +40,13 @@ function withBalance(inv) {
 
 router.get("/api/invoices/:id", async (req, ctx, params) => {
   const bad = requireOrg(ctx); if (bad) return bad;
-  const [invoice] = await sql`select i.*, c.name as client_name, c.email as client_email, p.project_number from invoices i join clients c on c.id=i.client_id left join projects p on p.id=i.project_id where i.org_id=${ctx.orgId} and i.id=${params.id}`;
+  const [invoice] = await sql`
+    select i.*, c.name as client_name, c.company_name as client_company_name, c.email as client_email,
+      c.phone as client_phone, c.tel as client_tel, c.address as client_address, c.trn as client_trn,
+      p.project_number
+    from invoices i join clients c on c.id=i.client_id left join projects p on p.id=i.project_id
+    where i.org_id=${ctx.orgId} and i.id=${params.id}
+  `;
   if (!invoice) return err("Invoice not found", 404);
   const lines = await getInvoiceLines(params.id);
   const payments = await sql`select * from payments where invoice_id=${params.id} order by payment_date`;
