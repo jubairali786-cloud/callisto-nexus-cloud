@@ -139,5 +139,23 @@ const API = (() => {
     profitAllocations: () => get("/api/profit-allocations"),
     approveProfitAllocation: (id) => post(`/api/profit-allocations/${id}/approve`),
     deleteProfitAllocation: (id) => del(`/api/profit-allocations/${id}`),
+
+    // Projects
+    projects: () => get("/api/projects"),
+    project: (id) => get(`/api/projects/${id}`),
+    createProject: (b) => post("/api/projects", b),
+    updateProject: (id, b) => put(`/api/projects/${id}`, b),
+    deleteProject: (id) => del(`/api/projects/${id}`),
+    uploadProjectAttachment: (projectId, b) => post(`/api/projects/${projectId}/attachments`, b),
+    updateAttachmentApproval: (id, status) => post(`/api/project-attachments/${id}/approval`, { status }),
+    updateAttachment: (id, b) => put(`/api/project-attachments/${id}`, b),
+    deleteProjectAttachment: (id) => del(`/api/project-attachments/${id}`),
+    attachmentFileUrl: (id) => `/api/project-attachments/${id}/file`,
+    createAdvanceInvoice: (projectId, b) => post(`/api/projects/${projectId}/advance-invoice`, b),
+    linkQuoteToProject: (quoteId, projectId) => post(`/api/quotes/${quoteId}/link-project`, { projectId }),
+    linkInvoiceToProject: (invoiceId, projectId) => post(`/api/invoices/${invoiceId}/link-project`, { projectId }),
+
+    // Global search
+    globalSearch: (q) => get(`/api/search?q=${encodeURIComponent(q)}`),
   };
 })();
