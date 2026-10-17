@@ -144,7 +144,7 @@ const App = (() => {
       if (section === "projects") {
         if (a === "new") return ProjectPages.renderForm(root);
         if (a && b === "edit") return ProjectPages.renderForm(root, a);
-        if (a) return ProjectPages.renderDetail(root, a);
+        if (a) return ProjectPages.renderDetail(root, a, b);
         return ProjectPages.renderList(root);
       }
       if (["partners-dashboard", "partners", "share-transfers"].includes(section)) {
