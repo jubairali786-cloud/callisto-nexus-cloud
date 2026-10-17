@@ -8,6 +8,69 @@ const SalesPages = (() => {
     return selectHtml("f_clientId", clients.map((c) => ({ value: c.id, label: c.name })), selected, "Select a client…");
   }
 
+  // Shared "Advance / partial payment requested" block used on both the Quote and
+  // Invoice forms. On a quote it's just a stated requirement (e.g. "50% deposit to
+  // proceed"); on an invoice the same amount also drives the Record Payment default.
+  // It's always optional and purely informational at the document level — it never
+  // moves a balance on its own.
+  function advanceFieldsHtml(existing) {
+    return `
+      <div class="field">
+        <label>Advance / partial payment requested <span style="font-weight:400;">(optional — just a stated request shown on the document; it doesn't affect any balance by itself)</span></label>
+        <div class="grid-3">
+          <div class="field"><label>Type</label>
+            <select id="f_advanceType">
+              <option value="" ${!existing?.advance_type ? "selected" : ""}>None</option>
+              <option value="percent" ${existing?.advance_type === "percent" ? "selected" : ""}>Percentage of total</option>
+              <option value="fixed" ${existing?.advance_type === "fixed" ? "selected" : ""}>Fixed amount</option>
+            </select>
+          </div>
+          <div class="field"><label id="f_advanceValueLabel">Value</label>
+            <input id="f_advanceValue" type="number" step="0.01" min="0" value="${existing?.advance_value != null ? existing.advance_value : ""}">
+          </div>
+          <div class="field"><label>Preview</label><div id="advancePreview" style="padding-top:8px;">—</div></div>
+        </div>
+      </div>
+    `;
+  }
+  // Wires the block above to a LineItemsEditor instance so the preview recalculates as
+  // lines or the advance fields change, and returns a reader for the save handler.
+  function wireAdvanceFields(editor) {
+    const advanceTypeEl = document.getElementById("f_advanceType");
+    const advanceValueEl = document.getElementById("f_advanceValue");
+    const advancePreviewEl = document.getElementById("advancePreview");
+    const advanceValueLabelEl = document.getElementById("f_advanceValueLabel");
+    function update() {
+      const type = advanceTypeEl.value;
+      advanceValueLabelEl.textContent = type === "percent" ? "Percentage (%)" : type === "fixed" ? "Fixed amount" : "Value";
+      advanceValueEl.placeholder = type === "percent" ? "e.g. 30" : type === "fixed" ? "e.g. 1575.00" : "";
+      advanceValueEl.disabled = !type;
+      if (!type) { advancePreviewEl.textContent = "—"; return; }
+      const total = editor.getTotals().total;
+      const val = Number(advanceValueEl.value) || 0;
+      let advance = type === "percent" ? (total * val) / 100 : val;
+      advance = Math.min(Math.max(advance, 0), total);
+      const remaining = Math.max(round2(total - advance), 0);
+      advancePreviewEl.innerHTML = `Advance: <strong>${Util.money(advance)}</strong> &nbsp;·&nbsp; Remaining: <strong>${Util.money(remaining)}</strong>`;
+    }
+    advanceTypeEl.onchange = update;
+    advanceValueEl.oninput = update;
+    // The line-items editor replaces its own inner HTML on every add/remove/edit, but the
+    // #lineEditor container node itself never gets replaced — so a delegated listener on it
+    // keeps catching input/click events from freshly-rendered rows without the editor
+    // needing to expose a change callback of its own.
+    document.getElementById("lineEditor").addEventListener("input", update);
+    document.getElementById("lineEditor").addEventListener("click", () => setTimeout(update, 0));
+    update();
+    return {
+      getAdvance: () => {
+        const advanceType = advanceTypeEl.value || null;
+        const advanceValue = advanceType ? Number(advanceValueEl.value) || 0 : null;
+        return { advanceType, advanceValue };
+      },
+    };
+  }
+
   // ===================== QUOTES =====================
   async function renderQuoteList(root) {
     root.innerHTML = `<div class="content">${pageHeader("Quotes", `<a class="btn btn-primary" href="#/quotes/new">+ New Quote</a>`)}<div class="card" id="listCard">Loading…</div></div>`;
@@ -51,18 +114,21 @@ const SalesPages = (() => {
         </div>
         <div class="grid-3">${currencyFieldsHtml(me.org?.base_currency, existing?.currency_code, existing?.fx_rate)}</div>
         <div class="field"><label>Lines</label><div id="lineEditor"></div></div>
+        ${advanceFieldsHtml(existing)}
         <div class="field"><label>Notes</label><textarea id="f_notes" rows="2">${Util.escapeHtml(existing?.notes || "")}</textarea></div>
         <div class="field"><label>Terms</label><textarea id="f_terms" rows="2">${Util.escapeHtml(existing?.terms || "")}</textarea></div>
         <div class="btn-row"><button class="btn btn-primary" id="saveBtn">Save Quote</button></div>
       </div>
     </div>`;
     const editor = LineItemsEditor(document.getElementById("lineEditor"), { lines, items, includeDiscount: true });
+    const advance = wireAdvanceFields(editor);
     document.getElementById("saveBtn").onclick = async () => {
       const clientId = document.getElementById("f_clientId").value;
       if (!clientId) return toastError(new Error("Please select a client."));
       const body = {
         clientId, quoteDate: document.getElementById("f_quoteDate").value, expiryDate: document.getElementById("f_expiryDate").value || null,
         notes: document.getElementById("f_notes").value.trim(), terms: document.getElementById("f_terms").value.trim(), lines: editor.getLines(),
+        ...advance.getAdvance(),
         ...readCurrencyFields(),
       };
       try {
@@ -76,10 +142,20 @@ const SalesPages = (() => {
   async function renderQuoteDetail(root, id) {
     root.innerHTML = `<div class="content">Loading…</div>`;
     const { quote, lines } = await API.quote(id);
+    const advanceAmt = Number(quote.advance_amount || 0);
     root.innerHTML = `<div class="content">
       <a class="back-link" href="#/quotes">&larr; Back to Quotes</a>
       ${pageHeader(quote.number, actionsForQuote(quote))}
       ${docSummaryCard(quote, lines, quote.client_name)}
+      ${quote.advance_type ? `<div class="card">
+        <h2>Advance payment required</h2>
+        <div class="grid-3">
+          <div><label>Required to proceed</label><div><strong>${Util.money(advanceAmt, quote.currency_code)}</strong>
+            ${quote.advance_type === "percent" ? ` (${Number(quote.advance_value)}% of total)` : " (fixed amount)"}</div></div>
+          <div><label>Balance on completion</label><div>${Util.money(Math.max(round2(Number(quote.total) - advanceAmt), 0), quote.currency_code)}</div></div>
+        </div>
+        <p style="margin-top:8px; color:#666;">This carries over automatically if this quote is converted to an invoice.</p>
+      </div>` : ""}
     </div>`;
     wireQuoteActions(root, quote, id);
   }
@@ -145,65 +221,22 @@ const SalesPages = (() => {
         </div>
         <div class="grid-3">${currencyFieldsHtml(me.org?.base_currency, existing?.currency_code, existing?.fx_rate)}</div>
         <div class="field"><label>Lines</label><div id="lineEditor"></div></div>
-        <div class="field">
-          <label>Advance / partial payment requested <span style="font-weight:400;">(optional — just a request shown on the invoice; it doesn't affect the balance until a payment is actually recorded)</span></label>
-          <div class="grid-3">
-            <div class="field"><label>Type</label>
-              <select id="f_advanceType">
-                <option value="" ${!existing?.advance_type ? "selected" : ""}>None</option>
-                <option value="percent" ${existing?.advance_type === "percent" ? "selected" : ""}>Percentage of total</option>
-                <option value="fixed" ${existing?.advance_type === "fixed" ? "selected" : ""}>Fixed amount</option>
-              </select>
-            </div>
-            <div class="field"><label id="f_advanceValueLabel">Value</label>
-              <input id="f_advanceValue" type="number" step="0.01" min="0" value="${existing?.advance_value != null ? existing.advance_value : ""}">
-            </div>
-            <div class="field"><label>Preview</label><div id="advancePreview" style="padding-top:8px;">—</div></div>
-          </div>
-        </div>
+        ${advanceFieldsHtml(existing)}
         <div class="field"><label>Notes</label><textarea id="f_notes" rows="2">${Util.escapeHtml(existing?.notes || "")}</textarea></div>
         <div class="field"><label>Terms</label><textarea id="f_terms" rows="2">${Util.escapeHtml(existing?.terms || "Payment due within 14 days.")}</textarea></div>
         <div class="btn-row"><button class="btn btn-primary" id="saveBtn">Save Invoice</button></div>
       </div>
     </div>`;
     const editor = LineItemsEditor(document.getElementById("lineEditor"), { lines, items, includeDiscount: true });
-
-    const advanceTypeEl = document.getElementById("f_advanceType");
-    const advanceValueEl = document.getElementById("f_advanceValue");
-    const advancePreviewEl = document.getElementById("advancePreview");
-    const advanceValueLabelEl = document.getElementById("f_advanceValueLabel");
-    function updateAdvancePreview() {
-      const type = advanceTypeEl.value;
-      advanceValueLabelEl.textContent = type === "percent" ? "Percentage (%)" : type === "fixed" ? "Fixed amount" : "Value";
-      advanceValueEl.placeholder = type === "percent" ? "e.g. 30" : type === "fixed" ? "e.g. 1575.00" : "";
-      advanceValueEl.disabled = !type;
-      if (!type) { advancePreviewEl.textContent = "—"; return; }
-      const total = editor.getTotals().total;
-      const val = Number(advanceValueEl.value) || 0;
-      let advance = type === "percent" ? (total * val) / 100 : val;
-      advance = Math.min(Math.max(advance, 0), total);
-      const remaining = Math.max(round2(total - advance), 0);
-      advancePreviewEl.innerHTML = `Advance: <strong>${Util.money(advance)}</strong> &nbsp;·&nbsp; Remaining: <strong>${Util.money(remaining)}</strong>`;
-    }
-    advanceTypeEl.onchange = updateAdvancePreview;
-    advanceValueEl.oninput = updateAdvancePreview;
-    // The line-items editor replaces its own inner HTML on every add/remove/edit, but the
-    // #lineEditor container node itself never gets replaced — so a delegated listener on it
-    // keeps catching input/click events from freshly-rendered rows without needing the editor
-    // to expose a change callback of its own.
-    document.getElementById("lineEditor").addEventListener("input", updateAdvancePreview);
-    document.getElementById("lineEditor").addEventListener("click", () => setTimeout(updateAdvancePreview, 0));
-    updateAdvancePreview();
+    const advance = wireAdvanceFields(editor);
 
     document.getElementById("saveBtn").onclick = async () => {
       const clientId = document.getElementById("f_clientId").value;
       if (!clientId) return toastError(new Error("Please select a client."));
-      const advanceType = advanceTypeEl.value || null;
-      const advanceValue = advanceType ? Number(advanceValueEl.value) || 0 : null;
       const body = {
         clientId, invoiceDate: document.getElementById("f_invoiceDate").value, dueDate: document.getElementById("f_dueDate").value || null,
         notes: document.getElementById("f_notes").value.trim(), terms: document.getElementById("f_terms").value.trim(), lines: editor.getLines(),
-        advanceType, advanceValue,
+        ...advance.getAdvance(),
         ...readCurrencyFields(),
       };
       try {
