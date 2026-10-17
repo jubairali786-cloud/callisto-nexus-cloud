@@ -13,10 +13,12 @@ import { router as purchasesRouter } from "./routes/purchases.js";
 import { router as bankingRouter } from "./routes/banking.js";
 import { router as reportsRouter } from "./routes/reports.js";
 import { router as partnersRouter } from "./routes/partners.js";
+import { router as projectsRouter } from "./routes/projects.js";
+import { router as searchRouter } from "./routes/search.js";
 
 await migrate();
 
-const routers = [authRouter, contactsRouter, itemsRouter, quotesRouter, invoicesRouter, creditNotesRouter, purchasesRouter, bankingRouter, reportsRouter, partnersRouter];
+const routers = [authRouter, contactsRouter, itemsRouter, quotesRouter, invoicesRouter, creditNotesRouter, purchasesRouter, bankingRouter, reportsRouter, partnersRouter, projectsRouter, searchRouter];
 
 const PUBLIC_DIR = new URL("../public/", import.meta.url);
 const PORT = Number(process.env.PORT || 3000);
