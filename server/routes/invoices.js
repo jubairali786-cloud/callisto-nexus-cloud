@@ -7,12 +7,42 @@ import { Router } from "../lib/router.js";
 export const router = new Router();
 function requireOrg(ctx) { if (!ctx || !ctx.orgId) return err("Not authenticated", 401); return null; }
 
+// Same Project Number resolution as quotes.js: picking an existing project forces
+// clientId to that project's client (auto-filled, never mismatched); `newProject`
+// creates one (only from an explicit "create new project" action — edits go through
+// PUT with the project already set, so resending/revising never creates a duplicate).
+async function resolveProjectLink(ctx, b, fallbackClientId) {
+  if (b.newProject && b.newProject.name) {
+    const clientId = b.clientId || fallbackClientId;
+    if (!clientId) return { error: "clientId is required to create a new project" };
+    const [client] = await sql`select id from clients where org_id=${ctx.orgId} and id=${clientId}`;
+    if (!client) return { error: "Client not found" };
+    const statusOk = ["quotation_sent", "awaiting_lpo", "approved", "in_progress", "completed", "cancelled"];
+    const status = statusOk.includes(b.newProject.status) ? b.newProject.status : "quotation_sent";
+    const [org] = await sql`select base_currency from orgs where id=${ctx.orgId}`;
+    const projectNumber = await nextNumber(ctx.orgId, "project");
+    const [project] = await sql`
+      insert into projects (org_id, project_number, name, client_id, contact_person, location, scope_of_work, status, approved_currency, created_by)
+      values (${ctx.orgId}, ${projectNumber}, ${b.newProject.name}, ${clientId}, ${b.newProject.contactPerson || null}, ${b.newProject.location || null}, ${b.newProject.scopeOfWork || null}, ${status}, ${org.base_currency}, ${ctx.user.id})
+      returning id, client_id
+    `;
+    return { projectId: project.id, clientId: project.client_id };
+  }
+  if (b.projectId) {
+    const [project] = await sql`select id, client_id from projects where org_id=${ctx.orgId} and id=${b.projectId}`;
+    if (!project) return { error: "Project not found" };
+    return { projectId: project.id, clientId: project.client_id };
+  }
+  if (b.projectId === null) return { projectId: null, clientId: b.clientId || fallbackClientId };
+  return { projectId: undefined, clientId: b.clientId || fallbackClientId };
+}
+
 router.get("/api/invoices", async (req, ctx) => {
   const bad = requireOrg(ctx); if (bad) return bad;
   const rows = await sql`
-    select i.*, c.name as client_name,
+    select i.*, c.name as client_name, p.project_number,
       (select coalesce(sum(cn.total),0) from credit_notes cn where cn.invoice_id=i.id and cn.status='issued') as credited_total
-    from invoices i join clients c on c.id=i.client_id
+    from invoices i join clients c on c.id=i.client_id left join projects p on p.id=i.project_id
     where i.org_id=${ctx.orgId} order by i.invoice_date desc, i.created_at desc
   `;
   return json({ invoices: rows.map(withBalance) });
@@ -25,7 +55,7 @@ function withBalance(inv) {
 
 router.get("/api/invoices/:id", async (req, ctx, params) => {
   const bad = requireOrg(ctx); if (bad) return bad;
-  const [invoice] = await sql`select i.*, c.name as client_name, c.email as client_email from invoices i join clients c on c.id=i.client_id where i.org_id=${ctx.orgId} and i.id=${params.id}`;
+  const [invoice] = await sql`select i.*, c.name as client_name, c.email as client_email, p.project_number from invoices i join clients c on c.id=i.client_id left join projects p on p.id=i.project_id where i.org_id=${ctx.orgId} and i.id=${params.id}`;
   if (!invoice) return err("Invoice not found", 404);
   const lines = await getInvoiceLines(params.id);
   const payments = await sql`select * from payments where invoice_id=${params.id} order by payment_date`;
@@ -36,7 +66,9 @@ router.get("/api/invoices/:id", async (req, ctx, params) => {
 router.post("/api/invoices", async (req, ctx) => {
   const bad = requireOrg(ctx); if (bad) return bad;
   const b = await req.json().catch(() => ({}));
-  if (!b.clientId || !Array.isArray(b.lines) || !b.lines.length) return err("clientId and at least one line are required");
+  const link = await resolveProjectLink(ctx, b, null);
+  if (link.error) return err(link.error);
+  if (!link.clientId || !Array.isArray(b.lines) || !b.lines.length) return err("clientId and at least one line are required");
   const adv = parseAdvance(b);
   if (adv.error) return err(adv.error);
   const [org] = await sql`select base_currency from orgs where id=${ctx.orgId}`;
@@ -47,8 +79,8 @@ router.post("/api/invoices", async (req, ctx) => {
 
   const invoice = await sql.begin(async (tx) => {
     const [inv] = await tx`
-      insert into invoices (org_id, number, client_id, invoice_date, due_date, currency_code, fx_rate, status, notes, terms, subtotal, vat_total, total, advance_type, advance_value)
-      values (${ctx.orgId}, ${number}, ${b.clientId}, ${b.invoiceDate || new Date().toISOString().slice(0, 10)}, ${b.dueDate || null},
+      insert into invoices (org_id, number, client_id, project_id, invoice_date, due_date, currency_code, fx_rate, status, notes, terms, subtotal, vat_total, total, advance_type, advance_value)
+      values (${ctx.orgId}, ${number}, ${link.clientId}, ${link.projectId || null}, ${b.invoiceDate || new Date().toISOString().slice(0, 10)}, ${b.dueDate || null},
         ${currency}, ${fxRate}, 'draft', ${b.notes || null}, ${b.terms || null}, ${totals.subtotal}, ${totals.vatTotal}, ${totals.total},
         ${adv.advanceType}, ${adv.advanceValue})
       returning *
@@ -65,12 +97,15 @@ router.put("/api/invoices/:id", async (req, ctx, params) => {
   const [existing] = await sql`select * from invoices where org_id=${ctx.orgId} and id=${params.id}`;
   if (!existing) return err("Invoice not found", 404);
   if (existing.status !== "draft") return err("Only draft invoices can be edited. Void and recreate if something's wrong.", 409);
+  const link = await resolveProjectLink(ctx, b, existing.client_id);
+  if (link.error) return err(link.error);
   const adv = parseAdvance(b);
   if (adv.error) return err(adv.error);
   const totals = computeTotals(b.lines || []);
   const invoice = await sql.begin(async (tx) => {
     const [inv] = await tx`
-      update invoices set client_id=${b.clientId}, invoice_date=${b.invoiceDate}, due_date=${b.dueDate || null},
+      update invoices set client_id=${link.clientId}, project_id=${link.projectId === undefined ? existing.project_id : link.projectId},
+        invoice_date=${b.invoiceDate}, due_date=${b.dueDate || null},
         currency_code=${b.currencyCode || existing.currency_code}, fx_rate=${b.fxRate || existing.fx_rate},
         notes=${b.notes || null}, terms=${b.terms || null}, subtotal=${totals.subtotal}, vat_total=${totals.vatTotal}, total=${totals.total},
         advance_type=${adv.advanceType}, advance_value=${adv.advanceValue}
@@ -80,6 +115,21 @@ router.put("/api/invoices/:id", async (req, ctx, params) => {
     return inv;
   });
   return json({ invoice: { ...invoice, advance_amount: advanceAmount(invoice) } });
+});
+
+// Links an EXISTING invoice (any status) to a project — same reasoning as the quotes
+// equivalent: this rejects a client mismatch outright rather than overriding it, since
+// an issued invoice's client is already a committed fact.
+router.post("/api/invoices/:id/link-project", async (req, ctx, params) => {
+  const bad = requireOrg(ctx); if (bad) return bad;
+  const b = await req.json().catch(() => ({}));
+  const [invoice] = await sql`select * from invoices where org_id=${ctx.orgId} and id=${params.id}`;
+  if (!invoice) return err("Invoice not found", 404);
+  const [project] = await sql`select * from projects where org_id=${ctx.orgId} and id=${b.projectId}`;
+  if (!project) return err("Project not found", 404);
+  if (project.client_id !== invoice.client_id) return err(`This invoice's client doesn't match ${project.project_number}'s client (${project.name}). Link it to a project for the same client.`, 409);
+  const [updated] = await sql`update invoices set project_id=${project.id} where id=${params.id} returning *`;
+  return json({ invoice: { ...updated, advance_amount: advanceAmount(updated) } });
 });
 
 // Issues a draft invoice: locks it (no more line edits) and posts the GL entry + inventory movement.
