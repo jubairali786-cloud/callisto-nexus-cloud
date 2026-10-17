@@ -83,6 +83,31 @@ export function toISODate(d) {
   return d;
 }
 
+// Computes the advance amount currently requested on an invoice — a percentage of
+// the final VAT-inclusive total, or a flat AED amount — clamped to [0, total].
+// Purely informational: it never affects amount_paid/balance, which only move
+// when an actual payment is recorded via POST /api/invoices/:id/payments.
+export function advanceAmount(invoice) {
+  if (!invoice || !invoice.advance_type || invoice.advance_value == null) return 0;
+  const total = Number(invoice.total);
+  const raw = invoice.advance_type === "percent" ? (total * Number(invoice.advance_value)) / 100 : Number(invoice.advance_value);
+  return round2(Math.min(Math.max(raw, 0), total));
+}
+
+// Validates the advanceType/advanceValue fields from an invoice create/update
+// request body. Returns { advanceType, advanceValue } (both null = no advance
+// requested) or { error } if what was sent doesn't make sense.
+export function parseAdvance(b) {
+  if (b.advanceType === "percent" || b.advanceType === "fixed") {
+    const v = Number(b.advanceValue);
+    if (!Number.isFinite(v) || v < 0) return { error: "Advance value must be a positive number" };
+    if (b.advanceType === "percent" && v > 100) return { error: "Advance percentage can't exceed 100%" };
+    return { advanceType: b.advanceType, advanceValue: round2(v) };
+  }
+  if (b.advanceType) return { error: "advanceType must be 'percent' or 'fixed'" };
+  return { advanceType: null, advanceValue: null };
+}
+
 export async function requireOrgAndRole(ctx, roles) {
   if (!ctx || !ctx.orgId) return err("Not authenticated or no org selected", 401);
   if (roles && !roles.includes(ctx.role)) return err("Insufficient permissions", 403);
