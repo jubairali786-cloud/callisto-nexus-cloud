@@ -134,6 +134,16 @@ router.post("/api/quotes/:id/status", async (req, ctx, params) => {
   const [existing] = await sql`select status from quotes where org_id=${ctx.orgId} and id=${params.id}`;
   if (!existing) return err("Quote not found", 404);
   if (existing.status === "accepted" && status !== "declined") return err("This quotation has already been accepted and has a project. Manage its status from the project instead.", 409);
+  // AED 0.00 is a deliberate, clearly-labelled unpriced placeholder (see the Items & Services
+  // catalog) — never an approved selling price. A salesperson must enter or confirm a real
+  // price on every line before this quotation can actually be sent to the client.
+  if (status === "sent") {
+    const lines = await getQuoteLines(params.id);
+    const unpriced = lines.filter((l) => Number(l.unit_price) === 0);
+    if (unpriced.length) {
+      return err(`This quotation has ${unpriced.length} line(s) still at the AED 0.00 placeholder price. Enter or confirm a real price on every line before sending it to the client.`, 409);
+    }
+  }
   const [row] = await sql`update quotes set status=${status} where org_id=${ctx.orgId} and id=${params.id} returning *`;
   return json({ quote: row });
 });
