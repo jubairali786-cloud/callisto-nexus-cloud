@@ -2,6 +2,7 @@ import { sql } from "../db.js";
 import { hashPassword, verifyPassword, createSession, destroySession, sessionCookieHeader, clearSessionCookieHeader, setSessionOrg, listUserOrgs } from "../lib/auth.js";
 import { json, err } from "../lib/helpers.js";
 import { ensureSystemAccounts } from "../lib/ledger.js";
+import { seedServiceCatalog } from "../lib/catalog-seed.js";
 import { Router } from "../lib/router.js";
 
 export const router = new Router();
@@ -35,6 +36,7 @@ router.post("/api/auth/signup", async (req) => {
     const [org] = await sql`insert into orgs (name) values (${orgName || "Callisto Nexus Technical Services L.L.C."}) returning id`;
     await sql`insert into org_members (org_id, user_id, role) values (${org.id}, ${user.id}, 'owner')`;
     await ensureSystemAccounts(org.id);
+    await seedServiceCatalog(sql, org.id);
     primaryOrgId = org.id;
   }
 
@@ -76,7 +78,7 @@ router.get("/api/auth/me", async (req, ctx) => {
   const orgs = await listUserOrgs(ctx.user.id);
   let org = null;
   if (ctx.orgId) {
-    const rows = await sql`select id, name, trn, base_currency, address, email, phone, logo_b64 from orgs where id=${ctx.orgId}`;
+    const rows = await sql`select id, name, trn, base_currency, address, email, phone, website, logo_b64, default_terms, default_advance_pct from orgs where id=${ctx.orgId}`;
     org = rows[0] || null;
   }
   return json({ user: ctx.user, orgId: ctx.orgId, role: ctx.role, orgs, org });
@@ -176,7 +178,8 @@ router.put("/api/org/settings", async (req, ctx) => {
   const b = await req.json().catch(() => ({}));
   await sql`
     update orgs set name=${b.name}, trn=${b.trn || null}, base_currency=${b.baseCurrency || "AED"},
-      address=${b.address || null}, email=${b.email || null}, phone=${b.phone || null},
+      address=${b.address || null}, email=${b.email || null}, phone=${b.phone || null}, website=${b.website || null},
+      default_terms=${b.defaultTerms || null}, default_advance_pct=${b.defaultAdvancePct != null && b.defaultAdvancePct !== "" ? Number(b.defaultAdvancePct) : null},
       logo_b64 = coalesce(${b.logoB64 || null}, logo_b64)
     where id=${ctx.orgId}
   `;
