@@ -1,182 +1,144 @@
-const PrintDoc = (() => {
-  function round2(n) { return Math.round((Number(n) + Number.EPSILON) * 100) / 100; }
-
-  // Turns the document's advance_type/advance_value into a plain-English payment-terms
-  // sentence, in the same style vendors commonly use on their own quotes/invoices
-  // ("50% Advance & 50% After delivery", "100% Advance along with LPO", etc.). Returns
-  // null when no advance was requested, so the Terms & Conditions section can fall back
-  // to whatever the user typed in the Terms field (or the default thank-you line).
-  function advancePaymentTermsLine(doc) {
-    const amt = Number(doc.advance_amount || 0);
-    if (!doc.advance_type || amt <= 0) return null;
-    const total = Number(doc.total);
-    const remaining = Math.max(round2(total - amt), 0);
-    if (doc.advance_type === "percent") {
-      const pct = Number(doc.advance_value);
-      if (pct >= 99.995) return `100% advance payment (${Util.money(amt, doc.currency_code)}) required before work/delivery commences.`;
-      const remainingPct = round2(100 - pct);
-      return `${pct}% advance payment (${Util.money(amt, doc.currency_code)}) required to proceed; remaining ${remainingPct}% (${Util.money(remaining, doc.currency_code)}) due on completion/delivery.`;
-    }
-    return `Advance payment of ${Util.money(amt, doc.currency_code)} required to proceed; remaining balance of ${Util.money(remaining, doc.currency_code)} due on completion/delivery.`;
-  }
-
-  // Builds the printed "Terms & Conditions" block: an auto-generated Payment Terms line
-  // (from the advance request, when one's set) plus whatever the user typed in the Terms
-  // field, each as its own bullet — matching the structured Terms & Conditions sections
-  // common on vendor quotes, rather than one plain paragraph. Falls back to the original
-  // single thank-you line when there's neither an advance nor custom terms text.
-  function buildTermsBlock(doc) {
-    const paymentLine = advancePaymentTermsLine(doc);
-    const customLines = (doc.terms || "").split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
-    if (!paymentLine && !customLines.length) {
-      return `<div class="doc-foot">Thank you for your business.</div>`;
-    }
-    const items = [];
-    if (paymentLine) items.push(`<strong>Payment Terms:</strong> ${Util.escapeHtml(paymentLine)}`);
-    customLines.forEach((l) => items.push(Util.escapeHtml(l)));
-    return `<div class="doc-foot">
-      <div style="font-weight:700; font-size:12.5px; margin-bottom:6px; color:#1c1c1e;">Terms &amp; Conditions</div>
-      <ul style="margin:0 0 8px; padding-left:18px;">
-        ${items.map((i) => `<li style="margin-bottom:3px;">${i}</li>`).join("")}
-      </ul>
-      Thank you for your business.
-    </div>`;
-  }
-
-  // type: 'quote' | 'invoice' | 'credit_note'
-  function buildMarkup({ type, doc, lines, payments, org, clientLabel }) {
-    const isQuote = type === "quote", isInvoice = type === "invoice", isCreditNote = type === "credit_note";
-    const title = isQuote ? "QUOTATION" : isInvoice ? "TAX INVOICE" : "CREDIT NOTE";
-    const number = doc.number;
-    const dateField = isQuote ? doc.quote_date : isInvoice ? doc.invoice_date : doc.cn_date;
-    const logo = (org && org.logo_b64) ? `data:image/png;base64,${org.logo_b64}` : `data:image/png;base64,${window.LOGO_B64}`;
-
-    const rows = lines.map((l) => {
-      const base = Number(l.qty) * Number(l.unit_price) * (1 - Number(l.discount_pct || 0) / 100);
-      const vat = base * (Number(l.vat_rate || 0) / 100);
-      return `<tr>
-        <td>${Util.escapeHtml(l.description)}</td>
-        <td class="num">${Number(l.qty)}</td>
-        <td class="num">${Util.escapeHtml(l.unit || "")}</td>
-        <td class="num">${Util.money(l.unit_price)}</td>
-        <td class="num">${Number(l.discount_pct || 0)}%</td>
-        <td class="num">${Number(l.vat_rate || 0)}%</td>
-        <td class="num">${Util.money(base + vat)}</td>
-      </tr>`;
-    }).join("");
-
-    const words = Util.amountInWords(Number(doc.total), doc.currency_code, "Fils");
-
-    let statusBlock = "";
-    let paymentSummaryBlock = "";
-    let paymentHistoryBlock = "";
-    if (isInvoice) {
-      const balance = Number(doc.total) - Number(doc.amount_paid || 0);
-      const advanceAmt = Number(doc.advance_amount || 0);
-      // Status isn't shown on the printed document itself — it's an internal tracking
-      // field (issued/paid/etc), not something that belongs on a document handed to the
-      // client. The money details (advance/paid/balance) go below the Total.
-      paymentSummaryBlock = `<div class="doc-totals" style="margin-top:6px;">
-        ${advanceAmt > 0 ? `<div class="row"><span>Advance requested${doc.advance_type === "percent" ? ` (${Number(doc.advance_value)}%)` : ""}</span><span>${Util.money(advanceAmt, doc.currency_code)}</span></div>` : ""}
-        ${Number(doc.amount_paid) > 0 ? `<div class="row"><span>Paid</span><span>${Util.money(doc.amount_paid, doc.currency_code)}</span></div>` : ""}
-        <div class="row"><span>Balance due</span><span><strong>${Util.money(balance, doc.currency_code)}</strong></span></div>
-      </div>`;
-      if (payments && payments.length) {
-        paymentHistoryBlock = `
-          <div class="doc-meta" style="margin-top:10px;"><strong>Payment history</strong></div>
-          <table class="doc-table">
-            <thead><tr><th>Date</th><th class="num">Amount</th><th>Method</th><th>Reference</th></tr></thead>
-            <tbody>${payments.map((p) => `<tr>
-              <td>${Util.dateStr(p.payment_date)}</td>
-              <td class="num">${Util.money(p.amount, p.currency_code)}</td>
-              <td>${Util.escapeHtml((p.method || "").replace(/_/g, " "))}</td>
-              <td>${Util.escapeHtml(p.reference || "—")}</td>
-            </tr>`).join("")}</tbody>
-          </table>`;
-      }
-    } else if (isQuote) {
-      // Quotes don't track payments — just state the advance requirement, below the Total,
-      // the same place it shows on an invoice.
-      const advanceAmt = Number(doc.advance_amount || 0);
-      if (advanceAmt > 0) {
-        const remaining = Math.max(Number(doc.total) - advanceAmt, 0);
-        paymentSummaryBlock = `<div class="doc-totals" style="margin-top:6px;">
-          <div class="row"><span>Advance payment required${doc.advance_type === "percent" ? ` (${Number(doc.advance_value)}%)` : ""}</span><span>${Util.money(advanceAmt, doc.currency_code)}</span></div>
-          <div class="row"><span>Balance on completion</span><span>${Util.money(remaining, doc.currency_code)}</span></div>
-        </div>`;
-      }
-    }
-
-    return `
-      <div class="doc-page">
-        <div class="doc-head">
-          <div class="co">
-            <img src="${logo}" alt="logo">
-            <div>
-              <div class="co-name">${Util.escapeHtml(org?.name || "Callisto Nexus Technical Services L.L.C.")}</div>
-              <div class="co-sub">${Util.escapeHtml(org?.address || "")}${org?.trn ? ` · TRN ${Util.escapeHtml(org.trn)}` : ""}</div>
-              <div class="co-sub">${[org?.email, org?.phone, org?.website].filter(Boolean).map(Util.escapeHtml).join(" · ")}</div>
-            </div>
+const SettingsPages = (() => {
+  async function render(root) {
+    root.innerHTML = `<div class="content">${pageHeader("Settings")}<div id="setBody">Loading…</div></div>`;
+    const body = document.getElementById("setBody");
+    const [me, { members }, { exchangeRates }] = await Promise.all([API.me(), API.orgMembers(), API.exchangeRates()]);
+    const org = me.org || {};
+    body.innerHTML = `
+      <div class="card">
+        <h2>Organization</h2>
+        <form id="orgForm">
+          <div class="field"><label>Company name</label><input id="f_name" value="${Util.escapeHtml(org.name || "")}"></div>
+          <div class="field-row">
+            <div class="field"><label>TRN</label><input id="f_trn" value="${Util.escapeHtml(org.trn || "")}"></div>
+            <div class="field"><label>Base currency</label><input id="f_baseCurrency" value="${Util.escapeHtml(org.base_currency || "AED")}"></div>
           </div>
-          <div class="doc-title">
-            <h2>${title}</h2>
-            <div class="doc-meta"># ${Util.escapeHtml(number)}</div>
-            <div class="doc-meta">Date: ${Util.dateStr(dateField)}</div>
-            ${isInvoice && doc.due_date ? `<div class="doc-meta">Due: ${Util.dateStr(doc.due_date)}</div>` : ""}
-            ${isQuote && doc.expiry_date ? `<div class="doc-meta">Valid until: ${Util.dateStr(doc.expiry_date)}</div>` : ""}
-            ${statusBlock}
+          <div class="field"><label>Address</label><textarea id="f_address" rows="2">${Util.escapeHtml(org.address || "")}</textarea></div>
+          <div class="field-row">
+            <div class="field"><label>Email</label><input id="f_email" value="${Util.escapeHtml(org.email || "")}"></div>
+            <div class="field"><label>Phone</label><input id="f_phone" value="${Util.escapeHtml(org.phone || "")}"></div>
+            <div class="field"><label>Website</label><input id="f_website" value="${Util.escapeHtml(org.website || "")}"></div>
           </div>
-        </div>
-        <div class="doc-to">
-          <div class="doc-to-label">${isCreditNote ? "Credit To" : isQuote ? "To" : "Bill To"}</div>
-          <div class="doc-to-name">${Util.escapeHtml(doc.client_company_name || clientLabel)}</div>
-          ${doc.client_company_name && clientLabel && clientLabel !== doc.client_company_name ? `<div>Attn: ${Util.escapeHtml(clientLabel)}</div>` : ""}
-          ${doc.client_address ? `<div>${Util.escapeHtml(doc.client_address).replace(/\n/g, "<br>")}</div>` : ""}
-          ${doc.client_trn ? `<div>TRN: ${Util.escapeHtml(doc.client_trn)}</div>` : ""}
-          ${doc.client_phone ? `<div>Phone: ${Util.escapeHtml(doc.client_phone)}</div>` : ""}
-          ${doc.client_tel ? `<div>Tel: ${Util.escapeHtml(doc.client_tel)}</div>` : ""}
-          ${doc.client_email ? `<div>Email: ${Util.escapeHtml(doc.client_email)}</div>` : ""}
-        </div>
-        ${isCreditNote && doc.invoice_number ? `<div class="doc-meta">Against invoice: ${Util.escapeHtml(doc.invoice_number)}</div>` : ""}
-        ${isCreditNote && doc.reason ? `<div class="doc-meta">Reason: ${Util.escapeHtml(doc.reason)}</div>` : ""}
-        <table class="doc-table">
-          <thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Unit</th><th class="num">Unit price</th><th class="num">Disc.</th><th class="num">VAT</th><th class="num">Amount</th></tr></thead>
-          <tbody>${rows}</tbody>
-        </table>
-        <div class="doc-totals">
-          <div class="row"><span>Subtotal</span><span>${Util.money(doc.subtotal, doc.currency_code)}</span></div>
-          <div class="row"><span>VAT</span><span>${Util.money(doc.vat_total, doc.currency_code)}</span></div>
-          <div class="row grand"><span>Total</span><span>${Util.money(doc.total, doc.currency_code)}</span></div>
-        </div>
-        ${paymentSummaryBlock}
-        <div class="doc-amount-words">Amount in words: ${Util.escapeHtml(words)} — Total: ${Util.money(doc.total, doc.currency_code)}</div>
-        ${paymentHistoryBlock}
-        ${doc.notes ? `<div class="doc-meta">${Util.escapeHtml(doc.notes)}</div>` : ""}
-        ${!isCreditNote ? buildTermsBlock(doc) : ""}
-        ${isQuote ? `
-          <div style="display:flex; justify-content:space-between; margin-top:36px; gap:40px;">
-            <div style="flex:1;">
-              <div style="border-top:1px solid #333; padding-top:4px; font-size:11px; color:#444;">Customer signature &amp; date</div>
-              <div style="font-size:10.5px; color:#8a8a90; margin-top:4px;">Signing below confirms acceptance of this quotation's scope, pricing and terms.</div>
-            </div>
-            <div style="flex:1;">
-              <div style="border-top:1px solid #333; padding-top:4px; font-size:11px; color:#444;">For ${Util.escapeHtml(org?.name || "Callisto Nexus Technical Services L.L.C.")}</div>
-            </div>
-          </div>
-        ` : ""}
+          <div class="field"><label>Logo (optional — overrides the default Callisto Nexus logo on printed documents)</label><input type="file" id="f_logo" accept="image/png,image/jpeg"></div>
+          <button type="submit" class="btn btn-primary">Save Organization Settings</button>
+        </form>
       </div>
+      <div class="card">
+        <h2>Standard Quotation Terms &amp; Advance</h2>
+        <p style="color:var(--text-muted); font-size:12.5px; margin-top:-6px;">
+          Used as the starting Terms &amp; Conditions / advance-payment request on every <strong>new</strong>
+          quotation — the salesperson can still edit or clear either per quote. Changing these never rewrites
+          a quotation that's already been created or issued.
+        </p>
+        <form id="defaultsForm">
+          <div class="field"><label>Default Terms &amp; Conditions</label><textarea id="f_defaultTerms" rows="6">${Util.escapeHtml(org.default_terms || "")}</textarea></div>
+          <div class="field" style="max-width:220px;"><label>Default advance payment (%)</label><input id="f_defaultAdvancePct" type="number" step="0.01" min="0" max="100" placeholder="e.g. 30" value="${org.default_advance_pct != null ? org.default_advance_pct : ""}"></div>
+          <button type="submit" class="btn btn-primary">Save Defaults</button>
+        </form>
+      </div>
+      <div class="card">
+        <h2>Staff members</h2>
+        <table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th></th></tr></thead>
+        <tbody>${members.map((m) => `<tr><td>${Util.escapeHtml(m.name || "—")}</td><td>${Util.escapeHtml(m.email || m.invite_email || "—")}</td><td>${m.role}</td><td>${m.invite_status}</td><td><button type="button" style="background:none;border:none;color:#c0392b;cursor:pointer;text-decoration:underline;padding:0;font-size:inherit;" data-remove-member="${m.id}">Remove</button></td></tr>`).join("")}</tbody></table>
+        <form id="inviteForm" class="field-row" style="margin-top:14px; align-items:flex-end;">
+          <div class="field" style="flex:2;"><label>Invite by email</label><input id="f_inviteEmail" type="email" required placeholder="colleague@company.com"></div>
+          <div class="field"><label>Role</label><select id="f_inviteRole"><option value="staff">Staff</option><option value="admin">Admin</option></select></div>
+          <div class="field"><button type="submit" class="btn">Invite</button></div>
+        </form>
+      </div>
+      <div class="card">
+        <h2>Exchange rates (manual — 1 unit of currency = this many ${Util.escapeHtml(org.base_currency || "AED")})</h2>
+        <table><thead><tr><th>Currency</th><th class="num">Rate to base</th><th>As of</th></tr></thead>
+        <tbody>${exchangeRates.map((r) => `<tr><td>${r.currency_code}</td><td class="num">${r.rate_to_base}</td><td>${Util.dateStr(r.as_of)}</td></tr>`).join("") || `<tr><td colspan="3">${emptyState("No exchange rates set — foreign-currency documents default to rate 1.")}</td></tr>`}</tbody></table>
+        <form id="fxForm" class="field-row" style="margin-top:14px; align-items:flex-end;">
+          <div class="field"><label>Currency code</label><input id="f_fxCurrency" placeholder="USD" maxlength="3" style="width:90px;"></div>
+          <div class="field"><label>Rate to base</label><input id="f_fxRate" type="number" step="0.000001"></div>
+          <div class="field"><button type="submit" class="btn">Add Rate</button></div>
+        </form>
+      </div>
+      ${me.role === "owner" ? `
+      <div class="card" style="border:1px solid #e0b4b4;">
+        <h2 style="color:#c0392b;">Danger zone</h2>
+        <p>Permanently delete <strong>${Util.escapeHtml(org.name || "this organization")}</strong> and everything in it —
+          clients, vendors, items, quotes, invoices, bills, payments, the chart of accounts, all of it. This cannot be undone.
+          Only do this for an empty/duplicate organization you created by mistake, never for one with real data you need.</p>
+        <button type="button" id="deleteOrgBtn" class="btn" style="background:#c0392b;color:#fff;">Delete this organization</button>
+      </div>` : ""}
     `;
+    body.querySelector("#orgForm").onsubmit = async (e) => {
+      e.preventDefault();
+      try {
+        let logoB64 = null;
+        const fileInput = body.querySelector("#f_logo");
+        if (fileInput.files[0]) logoB64 = await fileToBase64(fileInput.files[0]);
+        await API.saveOrgSettings({
+          name: body.querySelector("#f_name").value.trim(), trn: body.querySelector("#f_trn").value.trim(),
+          baseCurrency: body.querySelector("#f_baseCurrency").value.trim() || "AED", address: body.querySelector("#f_address").value.trim(),
+          email: body.querySelector("#f_email").value.trim(), phone: body.querySelector("#f_phone").value.trim(),
+          website: body.querySelector("#f_website").value.trim(), logoB64,
+          defaultTerms: org.default_terms || "", defaultAdvancePct: org.default_advance_pct,
+        });
+        Toast.show("Organization settings saved.");
+        App.renderSidebar();
+      } catch (err) { toastError(err); }
+    };
+    body.querySelector("#defaultsForm").onsubmit = async (e) => {
+      e.preventDefault();
+      try {
+        await API.saveOrgSettings({
+          name: org.name, trn: org.trn, baseCurrency: org.base_currency, address: org.address, email: org.email, phone: org.phone, website: org.website,
+          defaultTerms: body.querySelector("#f_defaultTerms").value.trim(),
+          defaultAdvancePct: body.querySelector("#f_defaultAdvancePct").value === "" ? null : Number(body.querySelector("#f_defaultAdvancePct").value),
+        });
+        Toast.show("Quotation defaults saved.");
+      } catch (err) { toastError(err); }
+    };
+    body.querySelector("#inviteForm").onsubmit = async (e) => {
+      e.preventDefault();
+      try {
+        const res = await API.invite({ email: body.querySelector("#f_inviteEmail").value.trim(), role: body.querySelector("#f_inviteRole").value });
+        Toast.show(res.note || "Invited."); render(root);
+      } catch (err) { toastError(err); }
+    };
+    body.querySelectorAll("[data-remove-member]").forEach((btn) => {
+      btn.onclick = async () => {
+        if (!confirm("Remove this staff member / cancel this invite?")) return;
+        try {
+          await API.removeMember(btn.getAttribute("data-remove-member"));
+          Toast.show("Removed."); render(root);
+        } catch (err) { toastError(err); }
+      };
+    });
+    const deleteOrgBtn = body.querySelector("#deleteOrgBtn");
+    if (deleteOrgBtn) {
+      deleteOrgBtn.onclick = async () => {
+        const typed = prompt(`This permanently deletes "${org.name}" and everything in it. This cannot be undone.\n\nType the organization name exactly to confirm:`);
+        if (typed === null) return;
+        if (typed.trim() !== (org.name || "").trim()) { Toast.show("Name didn't match — nothing was deleted."); return; }
+        try {
+          await API.deleteOrg();
+          Toast.show("Organization deleted.");
+          location.hash = "#/dashboard";
+          document.getElementById("app").innerHTML = "";
+          App.boot();
+        } catch (err) { toastError(err); }
+      };
+    }
+    body.querySelector("#fxForm").onsubmit = async (e) => {
+      e.preventDefault();
+      try {
+        await API.addExchangeRate({ currencyCode: body.querySelector("#f_fxCurrency").value.trim().toUpperCase(), rateToBase: Number(body.querySelector("#f_fxRate").value) });
+        Toast.show("Exchange rate added."); render(root);
+      } catch (err) { toastError(err); }
+    };
   }
-
-  function openPrintWindow(innerHtml) {
-    const w = window.open("", "_blank");
-    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Print</title>
-      <link rel="stylesheet" href="/styles.css"></head>
-      <body style="background:#fff; padding:20px;">${innerHtml}
-      <script>window.onload = () => setTimeout(() => window.print(), 300);</script>
-      </body></html>`);
-    w.document.close();
+  function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result.split(",")[1]);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
   }
-
-  return { buildMarkup, openPrintWindow };
+  return { render };
 })();
