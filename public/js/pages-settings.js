@@ -17,9 +17,23 @@ const SettingsPages = (() => {
           <div class="field-row">
             <div class="field"><label>Email</label><input id="f_email" value="${Util.escapeHtml(org.email || "")}"></div>
             <div class="field"><label>Phone</label><input id="f_phone" value="${Util.escapeHtml(org.phone || "")}"></div>
+            <div class="field"><label>Website</label><input id="f_website" value="${Util.escapeHtml(org.website || "")}"></div>
           </div>
           <div class="field"><label>Logo (optional — overrides the default Callisto Nexus logo on printed documents)</label><input type="file" id="f_logo" accept="image/png,image/jpeg"></div>
           <button type="submit" class="btn btn-primary">Save Organization Settings</button>
+        </form>
+      </div>
+      <div class="card">
+        <h2>Standard Quotation Terms &amp; Advance</h2>
+        <p style="color:var(--text-muted); font-size:12.5px; margin-top:-6px;">
+          Used as the starting Terms &amp; Conditions / advance-payment request on every <strong>new</strong>
+          quotation — the salesperson can still edit or clear either per quote. Changing these never rewrites
+          a quotation that's already been created or issued.
+        </p>
+        <form id="defaultsForm">
+          <div class="field"><label>Default Terms &amp; Conditions</label><textarea id="f_defaultTerms" rows="6">${Util.escapeHtml(org.default_terms || "")}</textarea></div>
+          <div class="field" style="max-width:220px;"><label>Default advance payment (%)</label><input id="f_defaultAdvancePct" type="number" step="0.01" min="0" max="100" placeholder="e.g. 30" value="${org.default_advance_pct != null ? org.default_advance_pct : ""}"></div>
+          <button type="submit" class="btn btn-primary">Save Defaults</button>
         </form>
       </div>
       <div class="card">
@@ -60,10 +74,23 @@ const SettingsPages = (() => {
         await API.saveOrgSettings({
           name: body.querySelector("#f_name").value.trim(), trn: body.querySelector("#f_trn").value.trim(),
           baseCurrency: body.querySelector("#f_baseCurrency").value.trim() || "AED", address: body.querySelector("#f_address").value.trim(),
-          email: body.querySelector("#f_email").value.trim(), phone: body.querySelector("#f_phone").value.trim(), logoB64,
+          email: body.querySelector("#f_email").value.trim(), phone: body.querySelector("#f_phone").value.trim(),
+          website: body.querySelector("#f_website").value.trim(), logoB64,
+          defaultTerms: org.default_terms || "", defaultAdvancePct: org.default_advance_pct,
         });
         Toast.show("Organization settings saved.");
         App.renderSidebar();
+      } catch (err) { toastError(err); }
+    };
+    body.querySelector("#defaultsForm").onsubmit = async (e) => {
+      e.preventDefault();
+      try {
+        await API.saveOrgSettings({
+          name: org.name, trn: org.trn, baseCurrency: org.base_currency, address: org.address, email: org.email, phone: org.phone, website: org.website,
+          defaultTerms: body.querySelector("#f_defaultTerms").value.trim(),
+          defaultAdvancePct: body.querySelector("#f_defaultAdvancePct").value === "" ? null : Number(body.querySelector("#f_defaultAdvancePct").value),
+        });
+        Toast.show("Quotation defaults saved.");
       } catch (err) { toastError(err); }
     };
     body.querySelector("#inviteForm").onsubmit = async (e) => {
