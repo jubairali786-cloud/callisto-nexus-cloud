@@ -110,20 +110,25 @@ const SalesPages = (() => {
   // proceed"); on an invoice the same amount also drives the Record Payment default.
   // It's always optional and purely informational at the document level — it never
   // moves a balance on its own.
-  function advanceFieldsHtml(existing) {
+  // defaultPct: only applied on a brand-new document (no `existing`) with no advance of its
+  // own yet — a starting suggestion (e.g. the org's Settings → default advance %), fully
+  // editable/removable before saving; never applied when editing an already-saved document.
+  function advanceFieldsHtml(existing, defaultPct) {
+    const startType = existing?.advance_type || (defaultPct ? "percent" : "");
+    const startValue = existing?.advance_value != null ? existing.advance_value : (defaultPct || "");
     return `
       <div class="field">
         <label>Advance / partial payment requested <span style="font-weight:400;">(optional — just a stated request shown on the document; it doesn't affect any balance by itself)</span></label>
         <div class="grid-3">
           <div class="field"><label>Type</label>
             <select id="f_advanceType">
-              <option value="" ${!existing?.advance_type ? "selected" : ""}>None</option>
-              <option value="percent" ${existing?.advance_type === "percent" ? "selected" : ""}>Percentage of total</option>
-              <option value="fixed" ${existing?.advance_type === "fixed" ? "selected" : ""}>Fixed amount</option>
+              <option value="" ${!startType ? "selected" : ""}>None</option>
+              <option value="percent" ${startType === "percent" ? "selected" : ""}>Percentage of total</option>
+              <option value="fixed" ${startType === "fixed" ? "selected" : ""}>Fixed amount</option>
             </select>
           </div>
           <div class="field"><label id="f_advanceValueLabel">Value</label>
-            <input id="f_advanceValue" type="number" step="0.01" min="0" value="${existing?.advance_value != null ? existing.advance_value : ""}">
+            <input id="f_advanceValue" type="number" step="0.01" min="0" value="${startValue}">
           </div>
           <div class="field"><label>Preview</label><div id="advancePreview" style="padding-top:8px;">—</div></div>
         </div>
@@ -166,6 +171,49 @@ const SalesPages = (() => {
         return { advanceType, advanceValue };
       },
     };
+  }
+
+  // Returns each selected catalog item's default service note, de-duplicated and in the
+  // order the items were first added — e.g. picking two AC items only surfaces the AC
+  // scope note once, not twice.
+  function combinedNotesFromLines(lines) {
+    const seen = new Set();
+    const notes = [];
+    for (const l of lines) {
+      const note = (l.defaultNotes || "").trim();
+      if (note && !seen.has(note)) { seen.add(note); notes.push(note); }
+    }
+    return notes;
+  }
+  function suggestedNotesHtml() {
+    return `
+      <div class="field">
+        <label>Suggested service notes <span style="font-weight:400; color:var(--text-muted);">(combined automatically from the catalog items picked in Lines above)</span></label>
+        <div id="suggestedNotesBox" class="totals-box" style="font-size:12.5px; color:#444; line-height:1.5;">—</div>
+      </div>
+    `;
+  }
+  // Wires the box above to a LineItemsEditor instance. Notes are never written into the
+  // Notes field automatically — only "+ Add to Notes" does that, and only for statements not
+  // already present, so a salesperson's own edits to Notes are never silently overwritten.
+  function wireSuggestedNotes(editor) {
+    const box = document.getElementById("suggestedNotesBox");
+    const notesEl = document.getElementById("f_notes");
+    function update() {
+      const notes = combinedNotesFromLines(editor.getLines());
+      if (!notes.length) { box.innerHTML = `<span style="color:var(--text-muted);">No service notes to suggest yet — pick catalog items in Lines above.</span>`; return; }
+      box.innerHTML = notes.map((n) => `<div style="margin-bottom:6px;">${Util.escapeHtml(n)}</div>`).join("")
+        + `<button type="button" class="btn btn-sm" id="addNotesBtn">+ Add to Notes</button>`;
+      document.getElementById("addNotesBtn").onclick = () => {
+        const current = notesEl.value;
+        const missing = notes.filter((n) => !current.includes(n));
+        if (!missing.length) { Toast.show("Already in Notes."); return; }
+        notesEl.value = (current ? current.trim() + "\n\n" : "") + missing.join("\n\n");
+      };
+    }
+    document.getElementById("lineEditor").addEventListener("input", update);
+    document.getElementById("lineEditor").addEventListener("click", () => setTimeout(update, 0));
+    update();
   }
 
   // ===================== QUOTES =====================
@@ -213,14 +261,16 @@ const SalesPages = (() => {
         ${projectPlanningFieldsHtml(existing)}
         <div class="grid-3">${currencyFieldsHtml(me.org?.base_currency, existing?.currency_code, existing?.fx_rate)}</div>
         <div class="field"><label>Lines</label><div id="lineEditor"></div></div>
-        ${advanceFieldsHtml(existing)}
+        ${advanceFieldsHtml(existing, !existing ? me.org?.default_advance_pct : null)}
+        ${suggestedNotesHtml()}
         <div class="field"><label>Notes</label><textarea id="f_notes" rows="2">${Util.escapeHtml(existing?.notes || "")}</textarea></div>
-        <div class="field"><label>Terms <span style="font-weight:400; color:var(--text-muted);">(payment terms — copied onto the project once this quote is accepted)</span></label><textarea id="f_terms" rows="2">${Util.escapeHtml(existing?.terms || "")}</textarea></div>
+        <div class="field"><label>Terms <span style="font-weight:400; color:var(--text-muted);">(payment terms — copied onto the project once this quote is accepted)</span></label><textarea id="f_terms" rows="2">${Util.escapeHtml(existing?.terms ?? (me.org?.default_terms || ""))}</textarea></div>
         <div class="btn-row"><button class="btn btn-primary" id="saveBtn">Save Quote</button></div>
       </div>
     </div>`;
     const editor = LineItemsEditor(document.getElementById("lineEditor"), { lines, items, includeDiscount: true });
     const advance = wireAdvanceFields(editor);
+    wireSuggestedNotes(editor);
     const project = wireProjectField(projects, existing, false);
     document.getElementById("saveBtn").onclick = async () => {
       const clientId = document.getElementById("f_clientId").value;
