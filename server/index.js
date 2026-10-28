@@ -1,5 +1,6 @@
-import { migrate } from "./db.js";
+import { migrate, sql } from "./db.js";
 import { getAuthContext } from "./lib/auth.js";
+import { seedServiceCatalogForAllOrgs } from "./lib/catalog-seed.js";
 import { Router } from "./lib/router.js";
 import { err } from "./lib/helpers.js";
 
@@ -17,6 +18,10 @@ import { router as projectsRouter } from "./routes/projects.js";
 import { router as searchRouter } from "./routes/search.js";
 
 await migrate();
+// Idempotent: adds any standard-catalog items a currently-existing org doesn't have yet
+// (e.g. right after this feature first deploys). Never overwrites an item an org already
+// has under the same code, so a price/description an org has since customized is untouched.
+await seedServiceCatalogForAllOrgs(sql);
 
 const routers = [authRouter, contactsRouter, itemsRouter, quotesRouter, invoicesRouter, creditNotesRouter, purchasesRouter, bankingRouter, reportsRouter, partnersRouter, projectsRouter, searchRouter];
 
