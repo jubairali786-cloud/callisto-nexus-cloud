@@ -12,8 +12,21 @@ function requireOrg(ctx) {
 // -------- Items --------
 router.get("/api/items", async (req, ctx) => {
   const bad = requireOrg(ctx); if (bad) return bad;
-  const rows = await sql`select * from items where org_id=${ctx.orgId} order by name`;
+  // Ordered by category then name so a plain list already reads grouped; the frontend
+  // catalog picker (quotation line items) groups explicitly off the `category` field.
+  const rows = await sql`select * from items where org_id=${ctx.orgId} order by coalesce(category, ''), name`;
   return json({ items: rows });
+});
+// Distinct category names in use, in catalog order (not alphabetical) — used to build the
+// grouped catalog picker and the Items page's category filter.
+router.get("/api/items/categories", async (req, ctx) => {
+  const bad = requireOrg(ctx); if (bad) return bad;
+  const rows = await sql`
+    select category, count(*)::int as count from items
+    where org_id=${ctx.orgId} and category is not null
+    group by category order by category
+  `;
+  return json({ categories: rows });
 });
 router.get("/api/items/:id", async (req, ctx, params) => {
   const bad = requireOrg(ctx); if (bad) return bad;
@@ -26,10 +39,14 @@ router.post("/api/items", async (req, ctx) => {
   const bad = requireOrg(ctx); if (bad) return bad;
   const b = await req.json().catch(() => ({}));
   if (!b.name) return err("name is required");
+  if (b.itemCode) {
+    const dup = await sql`select 1 from items where org_id=${ctx.orgId} and item_code=${b.itemCode}`;
+    if (dup.length) return err(`Item code "${b.itemCode}" is already in use`, 409);
+  }
   const [row] = await sql`
-    insert into items (org_id, sku, name, description, unit, item_type, sale_price, vat_rate, track_inventory, reorder_point, reorder_qty)
-    values (${ctx.orgId}, ${b.sku || null}, ${b.name}, ${b.description || null}, ${b.unit || "unit"}, ${b.itemType || "service"},
-      ${round2(b.salePrice || 0)}, ${b.vatRate ?? 5}, ${!!b.trackInventory}, ${b.reorderPoint || 0}, ${b.reorderQty || 0})
+    insert into items (org_id, sku, item_code, category, name, description, unit, item_type, sale_price, vat_rate, default_notes, service_terms, track_inventory, reorder_point, reorder_qty)
+    values (${ctx.orgId}, ${b.sku || null}, ${b.itemCode || null}, ${b.category || null}, ${b.name}, ${b.description || null}, ${b.unit || "unit"}, ${b.itemType || "service"},
+      ${round2(b.salePrice || 0)}, ${b.vatRate ?? 5}, ${b.defaultNotes || null}, ${b.serviceTerms || null}, ${!!b.trackInventory}, ${b.reorderPoint || 0}, ${b.reorderQty || 0})
     returning *
   `;
   return json({ item: row }, 201);
@@ -37,9 +54,15 @@ router.post("/api/items", async (req, ctx) => {
 router.put("/api/items/:id", async (req, ctx, params) => {
   const bad = requireOrg(ctx); if (bad) return bad;
   const b = await req.json().catch(() => ({}));
+  if (b.itemCode) {
+    const dup = await sql`select 1 from items where org_id=${ctx.orgId} and item_code=${b.itemCode} and id<>${params.id}`;
+    if (dup.length) return err(`Item code "${b.itemCode}" is already in use`, 409);
+  }
   const [row] = await sql`
-    update items set sku=${b.sku || null}, name=${b.name}, description=${b.description || null}, unit=${b.unit || "unit"},
+    update items set sku=${b.sku || null}, item_code=${b.itemCode || null}, category=${b.category || null},
+      name=${b.name}, description=${b.description || null}, unit=${b.unit || "unit"},
       item_type=${b.itemType || "service"}, sale_price=${round2(b.salePrice || 0)}, vat_rate=${b.vatRate ?? 5},
+      default_notes=${b.defaultNotes || null}, service_terms=${b.serviceTerms || null},
       track_inventory=${!!b.trackInventory}, reorder_point=${b.reorderPoint || 0}, reorder_qty=${b.reorderQty || 0},
       active=${b.active !== false}
     where org_id=${ctx.orgId} and id=${params.id} returning *
