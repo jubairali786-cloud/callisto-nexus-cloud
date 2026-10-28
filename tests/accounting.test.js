@@ -7,6 +7,7 @@ import { sql, migrate } from "../server/db.js";
 import { ensureSystemAccounts, getSystemAccountId, postJournalEntry, trialBalance } from "../server/lib/ledger.js";
 import { applyStockMovement, postAdjustmentJournal } from "../server/lib/inventory.js";
 import { computeTotals, round2 } from "../server/lib/helpers.js";
+import { CATALOG_ITEMS, seedServiceCatalog } from "../server/lib/catalog-seed.js";
 
 let orgId;
 
@@ -80,4 +81,37 @@ test("opening-balance stock adjustment nets to equity, not COGS", async () => {
   // COGS should be untouched by an opening-balance adjustment (regression guard for the
   // bug where opening stock seeding was fabricating phantom P&L profit via COGS).
   expect(Number(cogsBefore[0].net)).toBe(0);
+});
+
+test("service catalog seeds exactly 124 items, each unpriced/5% VAT/notes, with unique codes", async () => {
+  const [org2] = await sql`insert into orgs (name) values ('Catalog Test Co') returning id`;
+  await seedServiceCatalog(sql, org2.id);
+  const rows = await sql`select * from items where org_id=${org2.id}`;
+  expect(rows.length).toBe(124);
+  expect(CATALOG_ITEMS.length).toBe(124);
+  const codes = new Set(rows.map((r) => r.item_code));
+  expect(codes.size).toBe(124); // every item_code unique
+  for (const r of rows) {
+    expect(Number(r.sale_price)).toBe(0); // unpriced placeholder, never a real selling price
+    expect(Number(r.vat_rate)).toBe(5);
+    expect(r.category).toBeTruthy();
+    expect(r.default_notes).toBeTruthy();
+    expect(r.active).toBe(true);
+  }
+  const categories = new Set(rows.map((r) => r.category));
+  expect(categories.size).toBe(13);
+});
+
+test("re-running the catalog seed is idempotent (no duplicates, nothing overwritten)", async () => {
+  const [org3] = await sql`insert into orgs (name) values ('Idempotent Test Co') returning id`;
+  await seedServiceCatalog(sql, org3.id);
+  // Simulate a salesperson customizing a price after the first seed — the seed must never
+  // clobber this on a re-run (it only inserts a code that doesn't exist yet for this org).
+  await sql`update items set sale_price=250 where org_id=${org3.id} and item_code='AC-001'`;
+  await seedServiceCatalog(sql, org3.id);
+  await seedServiceCatalog(sql, org3.id); // a third time, for good measure
+  const rows = await sql`select * from items where org_id=${org3.id}`;
+  expect(rows.length).toBe(124); // still exactly 124, not 248/372
+  const ac001 = rows.find((r) => r.item_code === "AC-001");
+  expect(Number(ac001.sale_price)).toBe(250); // the customized price survived the re-seed
 });
