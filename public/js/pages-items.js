@@ -1,11 +1,28 @@
 const ItemPages = (() => {
+  // Same 13 categories the standard catalog is seeded under (server/lib/catalog-seed.js) —
+  // offered as suggestions via a datalist, not a restricted enum, so a one-off category
+  // can still be typed freely for a custom item.
+  const STANDARD_CATEGORIES = [
+    "AC Maintenance & Repair", "Electrical Works", "Plumbing Works", "Painting Works",
+    "Carpentry Works", "Masonry & Tiling", "Gypsum & False Ceiling", "Civil & Renovation Works",
+    "Air Duct Cleaning", "Handyman Services", "Cleaning Services", "Fire Protection & Fireproofing",
+    "General Charges",
+  ];
   function itemFormHtml(i) {
     i = i || {};
+    const unpriced = Number(i.sale_price || 0) === 0;
     return `
       <div class="field"><label>Name *</label><input id="f_name" value="${Util.escapeHtml(i.name || "")}" required></div>
       <div class="field-row">
+        <div class="field"><label>Category</label>
+          <input id="f_category" list="categoryDL" value="${Util.escapeHtml(i.category || "")}" placeholder="e.g. AC Maintenance & Repair">
+          <datalist id="categoryDL">${STANDARD_CATEGORIES.map((c) => `<option value="${Util.escapeHtml(c)}">`).join("")}</datalist>
+        </div>
+        <div class="field"><label>Item code <span style="font-weight:400; color:var(--text-muted);">(e.g. AC-001 — optional, must be unique)</span></label><input id="f_itemCode" value="${Util.escapeHtml(i.item_code || "")}"></div>
+      </div>
+      <div class="field-row">
         <div class="field"><label>SKU</label><input id="f_sku" value="${Util.escapeHtml(i.sku || "")}"></div>
-        <div class="field"><label>Unit</label><input id="f_unit" value="${Util.escapeHtml(i.unit || "unit")}"></div>
+        <div class="field"><label>Unit</label><input id="f_unit" value="${Util.escapeHtml(i.unit || "unit")}" placeholder="job, unit, hour, day, m², running metre…"></div>
       </div>
       <div class="field"><label>Type</label>
         <select id="f_itemType">
@@ -14,7 +31,7 @@ const ItemPages = (() => {
         </select>
       </div>
       <div class="field-row">
-        <div class="field"><label>Sale price</label><input id="f_salePrice" type="number" step="0.01" value="${i.sale_price || 0}"></div>
+        <div class="field"><label>Sale price ${unpriced && i.id ? '<span class="pill pill-void" style="font-weight:400;">unpriced placeholder</span>' : ""}</label><input id="f_salePrice" type="number" step="0.01" value="${i.sale_price || 0}"></div>
         <div class="field"><label>VAT %</label><input id="f_vatRate" type="number" step="0.01" value="${i.vat_rate ?? 5}"></div>
       </div>
       <div class="field-row">
@@ -22,11 +39,17 @@ const ItemPages = (() => {
         <div class="field"><label>Reorder qty</label><input id="f_reorderQty" type="number" step="0.01" value="${i.reorder_qty || 0}"></div>
       </div>
       <div class="field"><label>Description</label><textarea id="f_description" rows="2">${Util.escapeHtml(i.description || "")}</textarea></div>
+      <div class="field"><label>Default service note <span style="font-weight:400; color:var(--text-muted);">(suggested automatically on a quotation when this item is picked)</span></label><textarea id="f_defaultNotes" rows="2">${Util.escapeHtml(i.default_notes || "")}</textarea></div>
+      <div class="field"><label>Service-specific terms <span style="font-weight:400; color:var(--text-muted);">(optional — beyond the standard quotation terms)</span></label><textarea id="f_serviceTerms" rows="2">${Util.escapeHtml(i.service_terms || "")}</textarea></div>
+      ${i.id ? `<div class="field"><label><input type="checkbox" id="f_active" style="width:auto; display:inline-block;" ${i.active !== false ? "checked" : ""}> Active (shown in the catalog picker)</label></div>` : ""}
     `;
   }
   function readItemForm(modal) {
+    const activeEl = modal.querySelector("#f_active");
     return {
       name: modal.querySelector("#f_name").value.trim(),
+      category: modal.querySelector("#f_category").value.trim(),
+      itemCode: modal.querySelector("#f_itemCode").value.trim(),
       sku: modal.querySelector("#f_sku").value.trim(),
       unit: modal.querySelector("#f_unit").value.trim() || "unit",
       itemType: modal.querySelector("#f_itemType").value,
@@ -36,6 +59,9 @@ const ItemPages = (() => {
       reorderPoint: Number(modal.querySelector("#f_reorderPoint").value || 0),
       reorderQty: Number(modal.querySelector("#f_reorderQty").value || 0),
       description: modal.querySelector("#f_description").value.trim(),
+      defaultNotes: modal.querySelector("#f_defaultNotes").value.trim(),
+      serviceTerms: modal.querySelector("#f_serviceTerms").value.trim(),
+      active: activeEl ? activeEl.checked : true,
     };
   }
   function openItemModal(existing, onSaved) {
@@ -95,21 +121,25 @@ const ItemPages = (() => {
   }
 
   async function renderList(root) {
-    root.innerHTML = `<div class="content">${pageHeader("Items & Services", `<button class="btn btn-primary" id="newBtn">+ New Item</button> <a class="btn" href="#/price-lists">Price Lists</a>`)}<div class="card" id="listCard">Loading…</div></div>`;
-    async function load() {
-      const { items } = await API.items();
+    root.innerHTML = `<div class="content">${pageHeader("Items & Services", `<button class="btn btn-primary" id="newBtn">+ New Item</button> <a class="btn" href="#/price-lists">Price Lists</a>`)}
+      <div class="field" style="max-width:280px;"><label>Filter by category</label><select id="f_categoryFilter"><option value="">All categories</option></select></div>
+      <div class="card" id="listCard">Loading…</div></div>`;
+    let allItems = [];
+    function renderTable(filterCategory) {
+      const items = filterCategory ? allItems.filter((i) => i.category === filterCategory) : allItems;
       document.getElementById("listCard").innerHTML = items.length ? `
-        <table class="clickable"><thead><tr><th>Name</th><th>SKU</th><th>Type</th><th class="num">Sale price</th><th class="num">Qty on hand</th><th class="num">Avg cost</th><th class="col-del"></th></tr></thead>
+        <table class="clickable"><thead><tr><th>Category</th><th>Code</th><th>Name</th><th>Type</th><th class="num">Sale price</th><th class="num">Qty on hand</th><th class="col-del"></th></tr></thead>
         <tbody>${items.map((i) => `
           <tr data-nav="#/items/${i.id}">
-            <td>${Util.escapeHtml(i.name)}</td><td>${Util.escapeHtml(i.sku || "—")}</td>
+            <td>${Util.escapeHtml(i.category || "—")}</td>
+            <td>${Util.escapeHtml(i.item_code || i.sku || "—")}</td>
+            <td>${Util.escapeHtml(i.name)}${i.active === false ? ' <span class="pill pill-void">inactive</span>' : ""}</td>
             <td>${i.item_type === "inventory" ? "Inventory" : "Service"}</td>
-            <td class="num">${Util.money(i.sale_price)}</td>
+            <td class="num">${Util.money(i.sale_price)}${Number(i.sale_price) === 0 ? ' <span class="pill pill-void">unpriced</span>' : ""}</td>
             <td class="num">${i.track_inventory ? Number(i.qty_on_hand) : "—"}${i.track_inventory && Number(i.qty_on_hand) <= Number(i.reorder_point) ? ' <span class="pill pill-void">LOW</span>' : ""}</td>
-            <td class="num">${i.track_inventory ? Util.money(i.avg_cost) : "—"}</td>
             <td class="col-del"><button type="button" class="row-delete" data-del="${i.id}" title="Delete">&times;</button></td>
           </tr>`).join("")}</tbody></table>
-      ` : emptyState("No items or services yet.");
+      ` : emptyState("No items or services in this category yet.");
       wireRowNav(document.getElementById("listCard"));
       document.getElementById("listCard").querySelectorAll("[data-del]").forEach((btn) => {
         btn.onclick = async (e) => {
@@ -119,6 +149,16 @@ const ItemPages = (() => {
         };
       });
     }
+    async function load() {
+      const { items } = await API.items();
+      allItems = items;
+      const categories = [...new Set(items.map((i) => i.category).filter(Boolean))].sort();
+      const sel = document.getElementById("f_categoryFilter");
+      const prev = sel.value;
+      sel.innerHTML = `<option value="">All categories (${items.length})</option>` + categories.map((c) => `<option value="${Util.escapeHtml(c)}" ${c === prev ? "selected" : ""}>${Util.escapeHtml(c)} (${items.filter((i) => i.category === c).length})</option>`).join("");
+      renderTable(sel.value);
+    }
+    document.getElementById("f_categoryFilter").onchange = (e) => renderTable(e.target.value);
     root.querySelector("#newBtn").onclick = () => openItemModal(null, load);
     await load();
   }
@@ -134,14 +174,19 @@ const ItemPages = (() => {
       `)}
       <div class="card">
         <div class="grid-3">
+          <div><label>Category</label><div>${Util.escapeHtml(item.category || "—")}</div></div>
+          <div><label>Item code</label><div>${Util.escapeHtml(item.item_code || "—")}</div></div>
           <div><label>SKU</label><div>${Util.escapeHtml(item.sku || "—")}</div></div>
           <div><label>Type</label><div>${item.item_type === "inventory" ? "Inventory" : "Service"}</div></div>
           <div><label>Unit</label><div>${Util.escapeHtml(item.unit)}</div></div>
-          <div><label>Sale price</label><div>${Util.money(item.sale_price)}</div></div>
+          <div><label>Sale price</label><div>${Util.money(item.sale_price)}${Number(item.sale_price) === 0 ? ' <span class="pill pill-void">unpriced placeholder — confirm before quoting</span>' : ""}</div></div>
           <div><label>VAT rate</label><div>${item.vat_rate}%</div></div>
+          <div><label>Status</label><div>${item.active === false ? "Inactive" : "Active"}</div></div>
           ${item.track_inventory ? `<div><label>Qty on hand</label><div>${item.qty_on_hand} @ avg cost ${Util.money(item.avg_cost)}</div></div>` : ""}
         </div>
         ${item.description ? `<div style="margin-top:10px;"><label>Description</label><div>${Util.escapeHtml(item.description)}</div></div>` : ""}
+        ${item.default_notes ? `<div style="margin-top:10px;"><label>Default service note</label><div>${Util.escapeHtml(item.default_notes)}</div></div>` : ""}
+        ${item.service_terms ? `<div style="margin-top:10px;"><label>Service-specific terms</label><div>${Util.escapeHtml(item.service_terms)}</div></div>` : ""}
       </div>
       ${item.track_inventory ? `
         <div class="card"><h2>Stock movements</h2>
