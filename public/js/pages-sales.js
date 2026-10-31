@@ -162,6 +162,7 @@ const SalesPages = (() => {
     // keeps catching input/click events from freshly-rendered rows without the editor
     // needing to expose a change callback of its own.
     document.getElementById("lineEditor").addEventListener("input", update);
+    document.getElementById("lineEditor").addEventListener("change", update);
     document.getElementById("lineEditor").addEventListener("click", () => setTimeout(update, 0));
     update();
     return {
@@ -212,6 +213,52 @@ const SalesPages = (() => {
       };
     }
     document.getElementById("lineEditor").addEventListener("input", update);
+    document.getElementById("lineEditor").addEventListener("change", update);
+    document.getElementById("lineEditor").addEventListener("click", () => setTimeout(update, 0));
+    update();
+  }
+
+  // Same idea as combinedNotesFromLines above, but for each selected catalog item's
+  // optional service-specific terms (e.g. a longer warranty on one particular service) —
+  // de-duplicated and in first-picked order.
+  function combinedTermsFromLines(lines) {
+    const seen = new Set();
+    const terms = [];
+    for (const l of lines) {
+      const term = (l.serviceTerms || "").trim();
+      if (term && !seen.has(term)) { seen.add(term); terms.push(term); }
+    }
+    return terms;
+  }
+  function suggestedTermsHtml() {
+    return `
+      <div class="field">
+        <label>Suggested service-specific terms <span style="font-weight:400; color:var(--text-muted);">(picked up automatically from the catalog items in Lines above)</span></label>
+        <div id="suggestedTermsBox" class="totals-box" style="font-size:12.5px; color:#444; line-height:1.5;">—</div>
+      </div>
+    `;
+  }
+  // Mirrors wireSuggestedNotes: service-specific terms are never written into the Terms
+  // field automatically — only "+ Add to Terms" does that, and only for statements not
+  // already present, so a salesperson's own edits to Terms (including the Standard Terms &
+  // Conditions default from Settings) are never silently overwritten or duplicated.
+  function wireSuggestedTerms(editor) {
+    const box = document.getElementById("suggestedTermsBox");
+    const termsEl = document.getElementById("f_terms");
+    function update() {
+      const terms = combinedTermsFromLines(editor.getLines());
+      if (!terms.length) { box.innerHTML = `<span style="color:var(--text-muted);">No service-specific terms to suggest — none of the picked catalog items have any set.</span>`; return; }
+      box.innerHTML = terms.map((t) => `<div style="margin-bottom:6px;">${Util.escapeHtml(t)}</div>`).join("")
+        + `<button type="button" class="btn btn-sm" id="addTermsBtn">+ Add to Terms</button>`;
+      document.getElementById("addTermsBtn").onclick = () => {
+        const current = termsEl.value;
+        const missing = terms.filter((t) => !current.includes(t));
+        if (!missing.length) { Toast.show("Already in Terms."); return; }
+        termsEl.value = (current ? current.trim() + "\n\n" : "") + missing.join("\n\n");
+      };
+    }
+    document.getElementById("lineEditor").addEventListener("input", update);
+    document.getElementById("lineEditor").addEventListener("change", update);
     document.getElementById("lineEditor").addEventListener("click", () => setTimeout(update, 0));
     update();
   }
@@ -264,6 +311,7 @@ const SalesPages = (() => {
         ${advanceFieldsHtml(existing, !existing ? me.org?.default_advance_pct : null)}
         ${suggestedNotesHtml()}
         <div class="field"><label>Notes</label><textarea id="f_notes" rows="2">${Util.escapeHtml(existing?.notes || "")}</textarea></div>
+        ${suggestedTermsHtml()}
         <div class="field"><label>Terms <span style="font-weight:400; color:var(--text-muted);">(payment terms — copied onto the project once this quote is accepted)</span></label><textarea id="f_terms" rows="2">${Util.escapeHtml(existing?.terms ?? (me.org?.default_terms || ""))}</textarea></div>
         <div class="btn-row"><button class="btn btn-primary" id="saveBtn">Save Quote</button></div>
       </div>
@@ -271,6 +319,7 @@ const SalesPages = (() => {
     const editor = LineItemsEditor(document.getElementById("lineEditor"), { lines, items, includeDiscount: true });
     const advance = wireAdvanceFields(editor);
     wireSuggestedNotes(editor);
+    wireSuggestedTerms(editor);
     const project = wireProjectField(projects, existing, false);
     document.getElementById("saveBtn").onclick = async () => {
       const clientId = document.getElementById("f_clientId").value;
