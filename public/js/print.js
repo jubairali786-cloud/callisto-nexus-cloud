@@ -109,9 +109,9 @@ const PrintDoc = (() => {
 
     return `
       <div class="doc-page">
+        <div class="doc-logo-center"><img src="${logo}" alt="logo"></div>
         <div class="doc-head">
           <div class="co">
-            <img src="${logo}" alt="logo">
             <div>
               <div class="co-name">${Util.escapeHtml(org?.name || "Callisto Nexus Technical Services L.L.C.")}</div>
               ${org?.email ? `<div class="co-sub">Email: ${Util.escapeHtml(org.email)}</div>` : ""}
