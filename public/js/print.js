@@ -114,8 +114,10 @@ const PrintDoc = (() => {
             <img src="${logo}" alt="logo">
             <div>
               <div class="co-name">${Util.escapeHtml(org?.name || "Callisto Nexus Technical Services L.L.C.")}</div>
-              <div class="co-sub">${Util.escapeHtml(org?.address || "")}${org?.trn ? ` · TRN ${Util.escapeHtml(org.trn)}` : ""}</div>
-              ${(org?.email || org?.phone || org?.website) ? `<div class="co-sub">${[org?.email, org?.phone, org?.website].filter(Boolean).map(Util.escapeHtml).join(" · ")}</div>` : ""}
+              ${org?.email ? `<div class="co-sub">Email: ${Util.escapeHtml(org.email)}</div>` : ""}
+              ${org?.phone ? `<div class="co-sub">Phone: ${Util.escapeHtml(org.phone)}</div>` : ""}
+              ${(org?.address || org?.trn) ? `<div class="co-sub">Address: ${Util.escapeHtml(org?.address || "")}${org?.trn ? ` · TRN ${Util.escapeHtml(org.trn)}` : ""}</div>` : ""}
+              ${org?.website ? `<div class="co-sub">Website: ${Util.escapeHtml(org.website)}</div>` : ""}
             </div>
           </div>
           <div class="doc-title">
