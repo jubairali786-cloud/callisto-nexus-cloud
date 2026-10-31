@@ -313,6 +313,7 @@ const SalesPages = (() => {
         <div class="field"><label>Notes</label><textarea id="f_notes" rows="2">${Util.escapeHtml(existing?.notes || "")}</textarea></div>
         ${suggestedTermsHtml()}
         <div class="field"><label>Terms <span style="font-weight:400; color:var(--text-muted);">(payment terms — copied onto the project once this quote is accepted)</span></label><textarea id="f_terms" rows="2">${Util.escapeHtml(existing?.terms ?? (me.org?.default_terms || ""))}</textarea></div>
+        <div class="field"><label><input type="checkbox" id="f_showSignoff" style="width:auto; display:inline-block;" ${existing?.show_signoff === false ? "" : "checked"}> Show "Authorisation and client acceptance" signature block on the printed quote</label></div>
         <div class="btn-row"><button class="btn btn-primary" id="saveBtn">Save Quote</button></div>
       </div>
     </div>`;
@@ -329,6 +330,7 @@ const SalesPages = (() => {
       const body = {
         clientId, quoteDate: document.getElementById("f_quoteDate").value, expiryDate: document.getElementById("f_expiryDate").value || null,
         notes: document.getElementById("f_notes").value.trim(), terms: document.getElementById("f_terms").value.trim(), lines: editor.getLines(),
+        showSignoff: document.getElementById("f_showSignoff").checked,
         ...advance.getAdvance(),
         ...readCurrencyFields(),
         ...projectLink,
