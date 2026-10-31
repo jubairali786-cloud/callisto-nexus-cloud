@@ -86,7 +86,7 @@ function LineItemsEditor(container, opts) {
   }
 
   function addLine() {
-    state.lines.push({ _key: Util.uid(), itemId: "", description: "", qty: 1, unit: "", unitPrice: 0, discountPct: 0, vatRate: 5, expenseAccountId: "", _defaultNotes: "", _categoryFilter: "" });
+    state.lines.push({ _key: Util.uid(), itemId: "", description: "", qty: 1, unit: "", unitPrice: 0, discountPct: 0, vatRate: 5, expenseAccountId: "", _defaultNotes: "", _serviceTerms: "", _categoryFilter: "" });
     render();
   }
   function removeLine(key) {
@@ -102,9 +102,14 @@ function LineItemsEditor(container, opts) {
       line.unitPrice = Number(item.sale_price || 0);
       line.vatRate = Number(item.vat_rate ?? 5);
       line._defaultNotes = item.default_notes || "";
+      // Optional, per-item "service-specific terms" (e.g. a longer-than-usual warranty on
+      // one particular service) — combined into a "Suggested terms" box the same way
+      // default notes combine into "Suggested service notes" (see pages-sales.js).
+      line._serviceTerms = item.service_terms || "";
     } else {
       line.itemId = "";
       line._defaultNotes = "";
+      line._serviceTerms = "";
     }
     render();
   }
@@ -220,7 +225,7 @@ function LineItemsEditor(container, opts) {
     getLines: () => state.lines.map((l) => ({
       itemId: l.itemId || null, description: l.description, qty: Number(l.qty) || 0, unit: (l.unit || "").trim() || null,
       unitPrice: Number(l.unitPrice) || 0, discountPct: Number(l.discountPct) || 0, vatRate: Number(l.vatRate) || 0,
-      expenseAccountId: l.expenseAccountId || null, defaultNotes: l._defaultNotes || null,
+      expenseAccountId: l.expenseAccountId || null, defaultNotes: l._defaultNotes || null, serviceTerms: l._serviceTerms || null,
     })),
     getTotals: totals,
   };
