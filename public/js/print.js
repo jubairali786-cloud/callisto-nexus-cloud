@@ -155,6 +155,43 @@ const PrintDoc = (() => {
         ${paymentHistoryBlock}
         ${doc.notes ? `<div class="doc-meta">${Util.escapeHtml(doc.notes)}</div>` : ""}
         ${!isCreditNote ? buildTermsBlock(doc) : ""}
+        ${isQuote ? buildSignoffBlock(org) : ""}
+      </div>
+    `;
+  }
+
+  // Authorisation and client acceptance block — a signature area for the quotation to be
+  // physically (or digitally, once printed/signed/scanned back) signed off by both sides.
+  // Quotes only, matching the original spec's "customer acceptance/signature area" request
+  // for the Quotation PDF specifically — invoices/credit notes don't carry this block.
+  function buildSignoffBlock(org) {
+    const companyName = Util.escapeHtml(org?.name || "Callisto Nexus Technical Services L.L.C.");
+    const blank = `<span class="signoff-blank"></span>`;
+    return `
+      <div class="doc-signoff">
+        <h3>Authorisation and client acceptance</h3>
+        <div class="signoff-table">
+          <div class="signoff-row signoff-row-head">
+            <div>For ${companyName}</div>
+            <div>Accepted for the client</div>
+          </div>
+          <div class="signoff-row">
+            <div>Name / Title: [${blank}]</div>
+            <div>Name / Title: [${blank}]</div>
+          </div>
+          <div class="signoff-row">
+            <div>Signature: ${blank}</div>
+            <div>Signature: ${blank}</div>
+          </div>
+          <div class="signoff-row">
+            <div>Date: [${blank}]</div>
+            <div>Date: [${blank}]</div>
+          </div>
+          <div class="signoff-row">
+            <div>Company stamp:</div>
+            <div>Company stamp:</div>
+          </div>
+        </div>
       </div>
     `;
   }
