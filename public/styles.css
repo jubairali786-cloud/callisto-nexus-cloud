@@ -196,9 +196,10 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--brand-blue-light
   -webkit-print-color-adjust:exact; print-color-adjust:exact; color-adjust:exact;
   max-width:800px; margin:0 auto; padding:40px; border-radius:10px; color:#1c1c1e;
 }
+.doc-logo-center{display:flex; justify-content:center; margin-bottom:16px;}
+.doc-logo-center img{width:72px; height:72px; border-radius:10px;}
 .doc-head{display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:26px;}
 .doc-head .co{display:flex; gap:12px; align-items:center;}
-.doc-head img{width:56px; height:56px; border-radius:10px;}
 .doc-head .co-name{font-weight:800; font-size:16px;}
 .doc-head .co-sub{font-size:11.5px; color:#6b6b70; max-width:260px;}
 .doc-title{text-align:right;}
