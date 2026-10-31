@@ -115,6 +115,7 @@ const PrintDoc = (() => {
             <div>
               <div class="co-name">${Util.escapeHtml(org?.name || "Callisto Nexus Technical Services L.L.C.")}</div>
               <div class="co-sub">${Util.escapeHtml(org?.address || "")}${org?.trn ? ` · TRN ${Util.escapeHtml(org.trn)}` : ""}</div>
+              ${(org?.email || org?.phone || org?.website) ? `<div class="co-sub">${[org?.email, org?.phone, org?.website].filter(Boolean).map(Util.escapeHtml).join(" · ")}</div>` : ""}
             </div>
           </div>
           <div class="doc-title">
