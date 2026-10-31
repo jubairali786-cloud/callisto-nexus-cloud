@@ -68,10 +68,10 @@ router.post("/api/quotes", async (req, ctx) => {
 
   const result = await sql.begin(async (tx) => {
     const [quote] = await tx`
-      insert into quotes (org_id, number, client_id, project_id, quote_date, expiry_date, currency_code, fx_rate, status, notes, terms, subtotal, vat_total, total, advance_type, advance_value, project_title, location, scope_of_work)
+      insert into quotes (org_id, number, client_id, project_id, quote_date, expiry_date, currency_code, fx_rate, status, notes, terms, subtotal, vat_total, total, advance_type, advance_value, project_title, location, scope_of_work, show_signoff)
       values (${ctx.orgId}, ${number}, ${link.clientId}, ${link.projectId || null}, ${b.quoteDate || new Date().toISOString().slice(0, 10)}, ${b.expiryDate || null},
         ${currency}, ${fxRate}, 'draft', ${b.notes || null}, ${b.terms || null}, ${totals.subtotal}, ${totals.vatTotal}, ${totals.total},
-        ${adv.advanceType}, ${adv.advanceValue}, ${b.projectTitle || null}, ${b.location || null}, ${b.scopeOfWork || null})
+        ${adv.advanceType}, ${adv.advanceValue}, ${b.projectTitle || null}, ${b.location || null}, ${b.scopeOfWork || null}, ${b.showSignoff !== false})
       returning *
     `;
     await replaceQuoteLines(tx, quote.id, b.lines);
@@ -99,7 +99,8 @@ router.put("/api/quotes/:id", async (req, ctx, params) => {
         notes=${b.notes || null}, terms=${b.terms || null}, subtotal=${totals.subtotal}, vat_total=${totals.vatTotal}, total=${totals.total},
         advance_type=${adv.advanceType}, advance_value=${adv.advanceValue},
         project_title=${b.projectTitle != null ? b.projectTitle : existing.project_title}, location=${b.location != null ? b.location : existing.location},
-        scope_of_work=${b.scopeOfWork != null ? b.scopeOfWork : existing.scope_of_work}
+        scope_of_work=${b.scopeOfWork != null ? b.scopeOfWork : existing.scope_of_work},
+        show_signoff=${b.showSignoff !== undefined ? b.showSignoff !== false : existing.show_signoff}
       where id=${params.id} returning *
     `;
     if (Array.isArray(b.lines)) await replaceQuoteLines(tx, quote.id, b.lines);
