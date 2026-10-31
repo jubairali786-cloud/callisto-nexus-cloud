@@ -155,7 +155,7 @@ const PrintDoc = (() => {
         ${paymentHistoryBlock}
         ${doc.notes ? `<div class="doc-meta">${Util.escapeHtml(doc.notes)}</div>` : ""}
         ${!isCreditNote ? buildTermsBlock(doc) : ""}
-        ${isQuote ? buildSignoffBlock(org) : ""}
+        ${isQuote && doc.show_signoff !== false ? buildSignoffBlock(org) : ""}
       </div>
     `;
   }
@@ -166,7 +166,6 @@ const PrintDoc = (() => {
   // for the Quotation PDF specifically — invoices/credit notes don't carry this block.
   function buildSignoffBlock(org) {
     const companyName = Util.escapeHtml(org?.name || "Callisto Nexus Technical Services L.L.C.");
-    const blank = `<span class="signoff-blank"></span>`;
     return `
       <div class="doc-signoff">
         <h3>Authorisation and client acceptance</h3>
@@ -176,16 +175,16 @@ const PrintDoc = (() => {
             <div>Accepted for the client</div>
           </div>
           <div class="signoff-row">
-            <div>Name / Title: [${blank}]</div>
-            <div>Name / Title: [${blank}]</div>
+            <div>Name / Title:</div>
+            <div>Name / Title:</div>
           </div>
           <div class="signoff-row">
-            <div>Signature: ${blank}</div>
-            <div>Signature: ${blank}</div>
+            <div>Signature:</div>
+            <div>Signature:</div>
           </div>
           <div class="signoff-row">
-            <div>Date: [${blank}]</div>
-            <div>Date: [${blank}]</div>
+            <div>Date:</div>
+            <div>Date:</div>
           </div>
           <div class="signoff-row">
             <div>Company stamp:</div>
